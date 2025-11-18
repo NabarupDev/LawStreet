@@ -1,0 +1,21 @@
+# Core dependencies
+fastapi
+uvicorn
+pydantic
+
+# Vector database
+chromadb
+
+# Embeddings
+sentence-transformers
+torch
+
+# HTTP client for Ollama
+requests
+
+# Utilities
+python-multipart
+tqdm
+
+# Optional but recommended
+python-dotenv
