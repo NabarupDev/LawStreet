@@ -23,6 +23,11 @@ import { Channel, ChannelFilters, ChannelSort } from "stream-chat";
 import { ChannelList, useChatContext } from "stream-chat-react";
 import { useTheme } from "../hooks/use-theme";
 
+const truncateText = (text: string, maxLength: number) => {
+  if (text.length <= maxLength) return text;
+  return text.substring(0, maxLength) + "...";
+};
+
 interface ChatSidebarProps {
   isOpen: boolean;
   onClose: () => void;
@@ -35,20 +40,19 @@ const ChannelListEmptyStateIndicator = () => (
   <div className="flex flex-col items-center justify-center px-6 py-12 text-center">
     <div className="mb-4">
       <div className="w-16 h-16 bg-gradient-to-br from-primary/15 via-primary/8 to-transparent rounded-2xl flex items-center justify-center shadow-sm border border-primary/10">
-        <MessageCircle className="h-8 w-8 text-primary/70" />
+        <MessageSquare className="h-8 w-8 text-primary/70" />
       </div>
     </div>
     <div className="space-y-2 max-w-xs">
       <h3 className="text-sm font-medium text-foreground">
-        No writing sessions yet
+        No legal consultations yet
       </h3>
       <p className="text-xs text-muted-foreground leading-relaxed">
-        Start a new writing session to begin creating content with your AI
-        assistant.
+        Start a new legal consultation to get help with Indian law and legal matters.
       </p>
     </div>
     <div className="mt-4 flex items-center gap-1 text-xs text-muted-foreground/60">
-      <span>Click "New Writing Session" to get started</span>
+      <span>Click "New Legal Consultation" to get started</span>
     </div>
   </div>
 );
@@ -124,7 +128,7 @@ export const ChatSidebar = ({
                 >
                   <MessageSquare className="h-4 w-4 mr-2" />
                   <span className="flex-1 truncate text-sm font-medium">
-                    {previewProps.channel.data?.name || "New Writing Session"}
+                    {truncateText(previewProps.channel.data?.name || "New Legal Consultation", 30)}
                   </span>
                   <Button
                     variant="ghost"
@@ -147,7 +151,7 @@ export const ChatSidebar = ({
         <div className="p-2 border-t">
           <Button onClick={onNewChat} className="w-full justify-start">
             <PlusCircle className="mr-2 h-4 w-4" />
-            New Writing Session
+            New Legal Consultation
           </Button>
         </div>
 

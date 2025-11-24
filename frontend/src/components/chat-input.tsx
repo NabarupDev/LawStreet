@@ -3,7 +3,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { ArrowRight, Square, X } from "lucide-react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { WritingPromptsToolbar } from "./writing-prompts-toolbar";
 
 export interface ChatInputProps {
   className?: string;
@@ -14,7 +13,6 @@ export interface ChatInputProps {
   value: string;
   onValueChange: (text: string) => void;
   textareaRef?: React.RefObject<HTMLTextAreaElement>;
-  showPromptToolbar?: boolean;
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
@@ -22,21 +20,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   sendMessage,
   isGenerating,
   onStopGenerating,
-  placeholder = "Ask me to write something, or paste text to improve...",
+  placeholder = "Ask me about Indian law, legal matters, or paste legal text to analyze...",
   value,
   onValueChange,
   textareaRef: externalTextareaRef,
-  showPromptToolbar = false,
 }) => {
   const [isLoading, setIsLoading] = useState(false);
   const internalTextareaRef = useRef<HTMLTextAreaElement>(null);
   const textareaRef = externalTextareaRef || internalTextareaRef;
-
-  const handlePromptSelect = (prompt: string) => {
-    // Append the prompt to existing text or set it if empty
-    onValueChange(value ? `${value.trim()} ${prompt}` : prompt);
-    textareaRef.current?.focus();
-  };
 
   // Auto-resize textarea
   const updateTextareaHeight = useCallback(() => {
@@ -84,15 +75,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   };
 
   return (
-    <div
-      className={cn(
-        "flex flex-col bg-background",
-        showPromptToolbar && "border-t border-border/50"
-      )}
-    >
-      {showPromptToolbar && (
-        <WritingPromptsToolbar onPromptSelect={handlePromptSelect} />
-      )}
+    <div className={cn("flex flex-col bg-background")}>
       <div className={cn("p-4", className)}>
         <form onSubmit={handleSubmit}>
           <div className="relative">

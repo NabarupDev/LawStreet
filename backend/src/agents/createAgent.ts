@@ -1,6 +1,8 @@
 import { StreamChat } from "stream-chat";
 import { apiKey, serverClient } from "../serverClient";
 import { OllamaAgent } from "./ollama/OllamaAgent";
+import { GeminiAgent } from "./gemini/GeminiAgent";
+import { OpenRouterAgent } from "./openrouter/OpenRouterAgent";
 import { AgentPlatform, AIAgent } from "./types";
 
 export const createAgent = async (
@@ -21,7 +23,11 @@ export const createAgent = async (
   switch (platform) {
     case AgentPlatform.WRITING_ASSISTANT:
     case AgentPlatform.OPENAI:
-      return new OllamaAgent(chatClient, channel);
+      return new OpenRouterAgent(chatClient, channel);
+    case AgentPlatform.GEMINI:
+      return new GeminiAgent(chatClient, channel);
+    case AgentPlatform.OPENROUTER:
+      return new OpenRouterAgent(chatClient, channel);
     default:
       throw new Error(`Unsupported agent platform: ${platform}`);
   }

@@ -241,7 +241,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             </div>
             <div>
               <h2 className="text-sm font-semibold text-foreground">
-                {channel?.data?.name || "New Writing Session"}
+                {channel?.data?.name || "New Legal Consultation"}
               </h2>
               <p className="text-xs text-muted-foreground">
                 AI Writing Assistant • Always improving
