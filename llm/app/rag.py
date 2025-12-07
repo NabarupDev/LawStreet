@@ -14,7 +14,7 @@ class RAGPipeline:
         2. Get existing collection 'indian_law_collection' (error if not exists)
         3. Load embedding model singleton (sentence-transformers/all-MiniLM-L6-v2)
         4. Load prompt template from model/prompt_template.txt
-        5. Verify Ollama is accessible (optional health check)
+        5. Configure Gemini API with API key from environment
         6. Log successful initialization
     
     def retrieve_documents(query: str, top_k: int = 5):
@@ -85,9 +85,9 @@ class RAGPipeline:
         - Question section (user's query)
         - Answer section (instructions for response format)
     
-    def query_ollama(prompt: str) -> str:
-        // STEP 6: Call Ollama with retry logic
-        URL: http://localhost:11434/api/generate
+    def query_gemini(prompt: str) -> str:
+        // STEP 6: Call Gemini API with generation config
+        Uses Google Generative AI SDK
         
         REQUEST PAYLOAD:
         {
@@ -120,9 +120,9 @@ class RAGPipeline:
         Extract response["response"] field as answer text
         
         ERROR RETURNS:
-        - "Error: Could not connect to Ollama. Ensure it's running."
+        - "Error: Invalid or missing Gemini API key. Please check your .env file"
         - "Error: Request timed out. Query may be too complex."
-        - "Error: Ollama returned error: {details}"
+        - "Error: Gemini API quota exceeded. Please check your usage limits"
         
         EDGE CASES:
         - Empty response from model -> "No answer generated"
@@ -134,7 +134,7 @@ class RAGPipeline:
         1. retrieved_docs = retrieve_documents(query, top_k=5)
         2. context = build_context(retrieved_docs)
         3. prompt = build_prompt(query, context)
-        4. answer = query_ollama(prompt)
+        4. answer = query_gemini(prompt)
         
         5. Return structured response:
         {
@@ -153,7 +153,7 @@ class RAGPipeline:
         
         ERROR HANDLING:
         - If retrieve fails: Return with answer="Error during retrieval"
-        - If Ollama fails: Return with answer=<error_message>, sources=[]
+        - If Gemini API fails: Return with answer=<error_message>, sources=[]
         - If any exception: Log full traceback, return generic error
 
 METADATA FIELDS EXPECTED FROM CHROMADB:
@@ -169,8 +169,8 @@ METADATA FIELDS EXPECTED FROM CHROMADB:
 PERFORMANCE CONSIDERATIONS:
 - Cache embedding model (singleton)
 - Reuse ChromaDB client connection
-- Set appropriate timeouts
-- Use connection pooling for Ollama (future)
+- Set appropriate timeouts for Gemini API
+- Monitor API quota usage
 - Log timing for each step (debug mode)
 
 SINGLETON PATTERN:
@@ -179,17 +179,16 @@ This avoids reloading models and reconnecting to ChromaDB on every query.
 """
 import chromadb
 from chromadb.config import Settings
-import requests
-import json
+import google.generativeai as genai
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
 from app.config import (
     CHROMA_DIR,
     CHROMA_COLLECTION_NAME,
-    OLLAMA_BASE_URL,
-    OLLAMA_MODEL,
-    OLLAMA_TIMEOUT,
+    GEMINI_API_KEY,
+    GEMINI_MODEL,
+    GEMINI_TIMEOUT,
     TOP_K_RESULTS,
     PROMPT_TEMPLATE_PATH,
     MAX_CONTEXT_LENGTH
@@ -202,6 +201,14 @@ class RAGPipeline:
     
     def __init__(self):
         """Initialize the RAG pipeline"""
+        # Configure Gemini API
+        if not GEMINI_API_KEY:
+            raise ValueError("GEMINI_API_KEY not found in environment variables. Please set it in .env file")
+        
+        genai.configure(api_key=GEMINI_API_KEY)
+        self.gemini_model = genai.GenerativeModel(GEMINI_MODEL)
+        
+        # Initialize ChromaDB
         self.chroma_client = chromadb.PersistentClient(
             path=str(CHROMA_DIR),
             settings=Settings(anonymized_telemetry=False)
@@ -215,7 +222,7 @@ class RAGPipeline:
         
         self.prompt_template = self._load_prompt_template()
         
-        print(f"RAG Pipeline initialized with collection: {CHROMA_COLLECTION_NAME}")
+        print(f"RAG Pipeline initialized with Gemini model: {GEMINI_MODEL}")
     
     def _load_prompt_template(self) -> str:
         """Load the prompt template from file"""
@@ -272,6 +279,9 @@ Answer: Provide a clear, accurate answer based on the legal context above. Cite 
         Returns:
             Formatted context string
         """
+        if not documents:
+            return "No relevant legal documents were found for this query."
+        
         context_parts = []
         current_length = 0
         
@@ -279,19 +289,40 @@ Answer: Provide a clear, accurate answer based on the legal context above. Cite 
             metadata = doc.get('metadata', {})
             content = doc.get('content', '')
             
-            doc_text = f"\n[Document {idx}]\n"
+            # Build document header
+            doc_text = f"\n--- Document {idx} ---\n"
             
-            if 'source' in metadata:
-                doc_text += f"Source: {metadata['source']}\n"
-            if 'section' in metadata:
-                doc_text += f"Section: {metadata['section']}\n"
-            if 'article' in metadata:
-                doc_text += f"Article: {metadata['article']}\n"
-            if 'chapter_title' in metadata:
-                doc_text += f"Chapter: {metadata['chapter_title']}\n"
+            # Add act/source info
+            doc_type = metadata.get('type', '')
+            section_num = metadata.get('section_number', metadata.get('section', ''))
+            section_title = metadata.get('section_title', '')
             
-            doc_text += f"Content: {content}\n"
+            # Format based on document type
+            if doc_type == 'ipc':
+                doc_text += f"📜 Indian Penal Code (IPC) - Section {section_num}\n"
+            elif doc_type == 'crpc':
+                doc_text += f"📜 Code of Criminal Procedure (CrPC) - Section {section_num}\n"
+            elif doc_type == 'cpc':
+                doc_text += f"📜 Code of Civil Procedure (CPC) - Section {section_num}\n"
+            elif doc_type == 'evidence':
+                doc_text += f"📜 Indian Evidence Act - Section {section_num}\n"
+            else:
+                if 'source' in metadata:
+                    doc_text += f"Source: {metadata['source']}\n"
+                if section_num:
+                    doc_text += f"Section: {section_num}\n"
             
+            # Add title if available
+            if section_title:
+                # Clean up the title
+                clean_title = section_title.replace('in The', ' - ').replace('in TheIndian', ' - ')
+                doc_text += f"Title: {clean_title}\n"
+            
+            # Add the main content
+            doc_text += f"\n{content}\n"
+            doc_text += "---\n"
+            
+            # Check length limit
             if current_length + len(doc_text) > MAX_CONTEXT_LENGTH:
                 break
             
@@ -317,9 +348,9 @@ Answer: Provide a clear, accurate answer based on the legal context above. Cite 
         )
         return prompt
     
-    def query_ollama(self, prompt: str) -> str:
+    def query_gemini(self, prompt: str) -> str:
         """
-        Send prompt to Ollama and get response
+        Send prompt to Gemini and get response
         
         Args:
             prompt: Complete prompt string
@@ -327,36 +358,35 @@ Answer: Provide a clear, accurate answer based on the legal context above. Cite 
         Returns:
             Model response text
         """
-        url = f"{OLLAMA_BASE_URL}/api/generate"
-        
-        payload = {
-            "model": OLLAMA_MODEL,
-            "prompt": prompt,
-            "stream": False,
-            "options": {
-                "temperature": 0.7,
-                "top_p": 0.9,
-                "top_k": 40
-            }
-        }
-        
         try:
-            response = requests.post(
-                url,
-                json=payload,
-                timeout=OLLAMA_TIMEOUT
+            generation_config = genai.types.GenerationConfig(
+                temperature=0.7,
+                top_p=0.9,
+                top_k=40,
+                max_output_tokens=2048,
             )
-            response.raise_for_status()
             
-            result = response.json()
-            return result.get('response', 'No response generated')
+            response = self.gemini_model.generate_content(
+                prompt,
+                generation_config=generation_config,
+                request_options={'timeout': GEMINI_TIMEOUT}
+            )
             
-        except requests.exceptions.ConnectionError:
-            return "Error: Could not connect to Ollama. Please ensure Ollama is running on http://localhost:11434"
-        except requests.exceptions.Timeout:
-            return "Error: Request to Ollama timed out. The query may be too complex."
+            if response and response.text:
+                return response.text
+            else:
+                return "No response generated from Gemini"
+            
         except Exception as e:
-            return f"Error querying Ollama: {str(e)}"
+            error_msg = str(e)
+            if "API_KEY" in error_msg.upper():
+                return "Error: Invalid or missing Gemini API key. Please check your .env file"
+            elif "quota" in error_msg.lower():
+                return "Error: Gemini API quota exceeded. Please check your usage limits"
+            elif "timeout" in error_msg.lower():
+                return "Error: Request to Gemini timed out. The query may be too complex."
+            else:
+                return f"Error querying Gemini: {error_msg}"
     
     def ask(self, query: str) -> Dict[str, Any]:
         """
@@ -374,7 +404,7 @@ Answer: Provide a clear, accurate answer based on the legal context above. Cite 
         
         prompt = self.build_prompt(query, context)
         
-        answer = self.query_ollama(prompt)
+        answer = self.query_gemini(prompt)
         
         return {
             "answer": answer,

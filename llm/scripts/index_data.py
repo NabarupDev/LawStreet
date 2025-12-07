@@ -246,72 +246,119 @@ def load_json_file(filepath):
         return json.load(f)
 
 
-def create_document_text(item: dict) -> str:
+def chunk_text(text: str, chunk_size: int = 800, overlap: int = 200) -> list[str]:
     """
-    Create a searchable text representation of a legal document
+    Split text into overlapping chunks
     
     Args:
-        item: Dictionary containing legal document data
+        text: Text to chunk
+        chunk_size: Maximum characters per chunk
+        overlap: Number of overlapping characters between chunks
+        
+    Returns:
+        List of text chunks
+    """
+    if len(text) <= chunk_size:
+        return [text]
+    
+    chunks = []
+    start = 0
+    
+    while start < len(text):
+        end = start + chunk_size
+        
+        # If this is not the last chunk, try to break at a sentence or word boundary
+        if end < len(text):
+            # Look for sentence boundary (., !, ?)
+            last_period = text.rfind('.', start, end)
+            last_question = text.rfind('?', start, end)
+            last_exclaim = text.rfind('!', start, end)
+            boundary = max(last_period, last_question, last_exclaim)
+            
+            # If no sentence boundary, look for word boundary
+            if boundary == -1 or boundary < start + chunk_size // 2:
+                boundary = text.rfind(' ', start, end)
+            
+            # If found a good boundary, use it
+            if boundary > start:
+                end = boundary + 1
+        
+        chunks.append(text[start:end].strip())
+        start = end - overlap if end < len(text) else len(text)
+    
+    return chunks
+
+
+def create_document_text(item: dict, doc_type: str) -> str:
+    """
+    Create a searchable text representation of a legal document from scraped data
+    
+    Args:
+        item: Dictionary containing legal document data from scraper
+        doc_type: Type of document (ipc, crpc, cpc, evidence)
         
     Returns:
         Formatted text string for embedding
     """
     parts = []
     
-    doc_type = item.get('type', '')
-    source = item.get('metadata', {}).get('source', '')
-    
+    # Determine act abbreviation
     if doc_type == 'ipc':
         act_abbrev = "IPC"
+        act_name = "Indian Penal Code, 1860"
     elif doc_type == 'crpc':
         act_abbrev = "CrPC"
-    elif doc_type == 'constitution':
-        act_abbrev = "Constitution"
-    elif doc_type == 'evidence':
-        act_abbrev = "Evidence Act"
+        act_name = "Code of Criminal Procedure, 1973"
     elif doc_type == 'cpc':
         act_abbrev = "CPC"
-    elif doc_type == 'mva':
-        act_abbrev = "MVA"
-    elif doc_type == 'hma':
-        act_abbrev = "HMA"
-    elif doc_type == 'nia':
-        act_abbrev = "NIA"
-    elif doc_type == 'ida':
-        act_abbrev = "IDA"
+        act_name = "Code of Civil Procedure, 1908"
+    elif doc_type == 'evidence':
+        act_abbrev = "Evidence Act"
+        act_name = "Indian Evidence Act, 1872"
     else:
-        act_abbrev = doc_type.upper() if doc_type else ""
+        act_abbrev = doc_type.upper()
+        act_name = item.get('act', doc_type.upper())
     
-    if source:
-        parts.append(f"Source: {source}")
+    # Add source information
+    source = item.get('source', 'IndianKanoon.org')
+    parts.append(f"Source: {source}")
     
-    if 'section' in item:
-        if act_abbrev:
-            parts.append(f"{act_abbrev} Section {item['section']}")
-        else:
-            parts.append(f"Section {item['section']}")
-    elif 'article' in item:
-        if act_abbrev:
-            parts.append(f"{act_abbrev} Article {item['article']}")
-        else:
-            parts.append(f"Article {item['article']}")
+    # Add act name
+    if item.get('act'):
+        parts.append(f"Act: {item['act']}")
+    else:
+        parts.append(f"Act: {act_name}")
     
-    if 'section_title' in item and item['section_title']:
-        parts.append(f"Title: {item['section_title']}")
-    elif 'title' in item and item['title']:
-        parts.append(f"Title: {item['title']}")
+    # Add section number
+    section_num = item.get('section_number', '')
+    if section_num:
+        parts.append(f"{act_abbrev} Section {section_num}")
     
-    if 'chapter_title' in item and item['chapter_title']:
-        parts.append(f"Chapter: {item['chapter_title']}")
+    # Add section title
+    section_title = item.get('section_title', '')
+    if section_title:
+        parts.append(f"Title: {section_title}")
     
-    if 'content' in item and item['content']:
-        parts.append(f"Content: {item['content']}")
+    # Add main section text
+    section_text = item.get('section_text', '')
+    if section_text:
+        parts.append(f"\nContent:\n{section_text}")
     
-    if 'offense' in item and item['offense']:
-        parts.append(f"Offense: {item['offense']}")
+    # Add explanations if any
+    explanations = item.get('explanations', [])
+    if explanations and any(explanations):
+        parts.append("\nExplanations:")
+        for i, explanation in enumerate(explanations, 1):
+            if explanation and explanation.strip():
+                parts.append(f"{i}. {explanation}")
     
-    if 'punishment' in item and item['punishment']:
-        parts.append(f"Punishment: {item['punishment']}")
+    # Add illustrations if any
+    illustrations = item.get('illustrations', [])
+    if illustrations and any(illustrations):
+        parts.append("\nIllustrations:")
+        for i, illustration in enumerate(illustrations, 1):
+            if illustration and illustration.strip():
+                parts.append(f"{i}. {illustration}")
     
     return "\n".join(parts)
 
@@ -373,41 +420,75 @@ def index_data_to_chroma():
         ids = []
         documents = []
         metadatas = []
+        total_chunks = 0
         
         for idx, item in enumerate(tqdm(data, desc=f"     Preparing {data_type}", unit="doc")):
-            base_id = item.get('id', f"{data_type}_{idx}")
-            doc_id = f"{base_id}_{idx}" if base_id in ids else base_id
-            ids.append(doc_id)
+            # Create document text
+            doc_text = create_document_text(item, data_type)
             
-            doc_text = create_document_text(item)
-            documents.append(doc_text)
+            # Chunk the document if it's too large
+            chunks = chunk_text(doc_text, chunk_size=800, overlap=200)
+            total_chunks += len(chunks)
             
-            metadata = item.get('metadata', {})
-            if 'type' not in metadata:
-                metadata['type'] = item.get('type', data_type)
-            clean_metadata = {}
-            for key, value in metadata.items():
-                if value is not None:
-                    if isinstance(value, (str, int, float)):
-                        clean_metadata[key] = value
-                    else:
-                        clean_metadata[key] = str(value)
-            metadatas.append(clean_metadata)
+            # Create metadata
+            section_num = item.get('section_number', idx)
+            
+            # Process each chunk
+            for chunk_idx, chunk in enumerate(chunks):
+                # Generate stable ID
+                chunk_id = f"{data_type}_{section_num}_{chunk_idx}"
+                ids.append(chunk_id)
+                documents.append(chunk)
+                
+                # Create metadata for this chunk
+                metadata = {
+                    'type': data_type,
+                    'section_number': str(section_num),
+                    'section_title': item.get('section_title', ''),
+                    'source': item.get('source', 'IndianKanoon.org'),
+                    'url': item.get('url', ''),
+                    'act': item.get('act', ''),
+                    'chunk_index': chunk_idx,
+                    'total_chunks': len(chunks)
+                }
+                
+                # Clean metadata - remove None values and ensure correct types
+                clean_metadata = {}
+                for key, value in metadata.items():
+                    if value is not None and value != '':
+                        if isinstance(value, (str, int, float, bool)):
+                            clean_metadata[key] = value
+                        else:
+                            clean_metadata[key] = str(value)
+                
+                metadatas.append(clean_metadata)
         
-        print(f"     Generating embeddings for {len(documents)} documents...")
-        embeddings = embedding_model.embed_documents(documents)
+        print(f"     Generated {total_chunks} chunks from {len(data)} documents (avg {total_chunks/len(data):.1f} chunks/doc)")
+        print(f"     Generating embeddings for {len(documents)} chunks...")
         
+        try:
+            embeddings = embedding_model.embed_documents(documents)
+        except Exception as e:
+            print(f"     ✗ Error generating embeddings: {e}")
+            continue
+        
+        # Add to ChromaDB in batches
         batch_size = 100
+        print(f"     Adding chunks to ChromaDB...")
         for i in range(0, len(ids), batch_size):
             end_idx = min(i + batch_size, len(ids))
-            collection.add(
-                ids=ids[i:end_idx],
-                documents=documents[i:end_idx],
-                embeddings=embeddings[i:end_idx],
-                metadatas=metadatas[i:end_idx]
-            )
+            try:
+                collection.add(
+                    ids=ids[i:end_idx],
+                    documents=documents[i:end_idx],
+                    embeddings=embeddings[i:end_idx],
+                    metadatas=metadatas[i:end_idx]
+                )
+            except Exception as e:
+                print(f"     ✗ Error adding batch {i}-{end_idx}: {e}")
+                continue
         
-        print(f"     ✓ Indexed {len(ids)} documents from {data_type}")
+        print(f"     ✓ Indexed {len(ids)} chunks from {len(data)} documents in {data_type}")
         total_documents += len(ids)
     
     print("\n" + "=" * 60)

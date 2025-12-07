@@ -23,8 +23,10 @@ for query in queries:
     for i, doc in enumerate(results, 1):
         print(f"\nDocument {i}:")
         print(f"  Source: {doc['metadata'].get('source', 'N/A')}")
-        print(f"  Section: {doc['metadata'].get('section', doc['metadata'].get('article', 'N/A'))}")
+        print(f"  Section Number: {doc['metadata'].get('section_number', 'N/A')}")
+        print(f"  Section Title: {doc['metadata'].get('section_title', 'N/A')[:60]}...")
         print(f"  Type: {doc['metadata'].get('type', 'N/A')}")
+        print(f"  Chunk: {doc['metadata'].get('chunk_index', 0)}/{doc['metadata'].get('total_chunks', 1)}")
         print(f"  Distance: {doc.get('distance', 'N/A'):.4f}")
-        print(f"  Content (first 150 chars): {doc['content'][:150]}...")
+        print(f"  Content (first 200 chars): {doc['content'][:200]}...")
     print()

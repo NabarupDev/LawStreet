@@ -10,12 +10,10 @@ chromadb
 sentence-transformers
 torch
 
-# HTTP client for Ollama
-requests
+# Google Gemini API
+google-generativeai
 
 # Utilities
 python-multipart
 tqdm
-
-# Optional but recommended
 python-dotenv

@@ -6,6 +6,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { Bot, Check, Copy, Languages } from "lucide-react";
 import React, { useState, useEffect } from "react";
@@ -70,6 +71,12 @@ const ChatMessage: React.FC = () => {
   const translateText = async (targetLang: string) => {
     if (!message.text) return;
     
+    // If the message looks like JSON (e.g., API responses), skip translation
+    if (message.text.trim().startsWith('{') || message.text.trim().startsWith('[')) {
+      setTranslatedText("Translation not available for this message type.");
+      return;
+    }
+    
     // If the same language is selected again, clear the translation
     if (selectedLanguage === targetLang) {
       clearTranslation();
@@ -97,6 +104,12 @@ const ChatMessage: React.FC = () => {
       });
       
       const data = await response.json();
+      
+      // Check if the response is in the expected format
+      if (!Array.isArray(data) || !Array.isArray(data[0])) {
+        throw new Error("Invalid translation response format");
+      }
+      
       // Google Translate API returns array of arrays, collect all translated parts
       const fullTranslation = data[0]?.map((part: any[]) => part[0]).join('') || "";
       
@@ -276,73 +289,76 @@ const ChatMessage: React.FC = () => {
                     </Button>
                   </div>
                   <div className="text-sm leading-relaxed">
-                    <ReactMarkdown
-                      components={{
-                        p: ({ children }) => (
-                          <p className="mb-3 last:mb-0 leading-relaxed">{children}</p>
-                        ),
-                        code: ({ children, ...props }) => {
-                          const { node, ...rest } = props;
-                          const isInline = !rest.className?.includes("language-");
+                    {isTranslating ? (
+                      <div className="space-y-2">
+                        <Skeleton className="h-4 w-full" />
+                        <Skeleton className="h-4 w-3/4" />
+                        <Skeleton className="h-4 w-1/2" />
+                      </div>
+                    ) : (
+                      <ReactMarkdown
+                        components={{
+                          p: ({ children }) => (
+                            <p className="mb-3 last:mb-0 leading-relaxed">{children}</p>
+                          ),
+                          code: ({ children, ...props }) => {
+                            const { node, ...rest } = props;
+                            const isInline = !rest.className?.includes("language-");
 
-                          return isInline ? (
-                            <code
-                              className="px-1.5 py-0.5 rounded text-xs font-mono bg-black/10 dark:bg-white/10"
-                              {...rest}
-                            >
+                            return isInline ? (
+                              <code
+                                className="px-1.5 py-0.5 rounded text-xs font-mono bg-black/10 dark:bg-white/10"
+                                {...rest}
+                              >
+                                {children}
+                              </code>
+                            ) : (
+                              <pre className="p-3 rounded-md overflow-x-auto my-2 text-xs font-mono bg-black/5 dark:bg-white/5">
+                                <code {...rest}>{children}</code>
+                              </pre>
+                            );
+                          },
+                          ul: ({ children }) => (
+                            <ul className="list-disc ml-4 mb-3 space-y-1">
                               {children}
-                            </code>
-                          ) : (
-                            <pre className="p-3 rounded-md overflow-x-auto my-2 text-xs font-mono bg-black/5 dark:bg-white/5">
-                              <code {...rest}>{children}</code>
-                            </pre>
-                          );
-                        },
-                        ul: ({ children }) => (
-                          <ul className="list-disc ml-4 mb-3 space-y-1">
-                            {children}
-                          </ul>
-                        ),
-                        ol: ({ children }) => (
-                          <ol className="list-decimal ml-4 mb-3 space-y-1">
-                            {children}
-                          </ol>
-                        ),
-                        li: ({ children }) => (
-                          <li className="leading-relaxed">{children}</li>
-                        ),
-                        blockquote: ({ children }) => (
-                          <blockquote className="border-l-3 pl-3 my-2 italic border-current/30">
-                            {children}
-                          </blockquote>
-                        ),
-                        h1: ({ children }) => (
-                          <h1 className="text-lg font-semibold mb-2 mt-4 first:mt-0">
-                            {children}
-                          </h1>
-                        ),
-                        h2: ({ children }) => (
-                          <h2 className="text-base font-semibold mb-2 mt-3 first:mt-0">
-                            {children}
-                          </h2>
-                        ),
-                        h3: ({ children }) => (
-                          <h3 className="text-sm font-semibold mb-2 mt-3 first:mt-0">
-                            {children}
-                          </h3>
-                        ),
-                        strong: ({ children }) => (
-                          <strong className="font-semibold">{children}</strong>
-                        ),
-                        em: ({ children }) => <em className="italic">{children}</em>,
-                      }}
-                    >
-                      {isTranslating ? streamingTranslation : translatedText}
-                    </ReactMarkdown>
-                    {isTranslating && (
-                      <span className="inline-flex ml-1">
-                        <span className="animate-pulse">|</span>
-                      </span>
+                            </ul>
+                          ),
+                          ol: ({ children }) => (
+                            <ol className="list-decimal ml-4 mb-3 space-y-1">
+                              {children}
+                            </ol>
+                          ),
+                          li: ({ children }) => (
+                            <li className="leading-relaxed">{children}</li>
+                          ),
+                          blockquote: ({ children }) => (
+                            <blockquote className="border-l-3 pl-3 my-2 italic border-current/30">
+                              {children}
+                            </blockquote>
+                          ),
+                          h1: ({ children }) => (
+                            <h1 className="text-lg font-semibold mb-2 mt-4 first:mt-0">
+                              {children}
+                            </h1>
+                          ),
+                          h2: ({ children }) => (
+                            <h2 className="text-base font-semibold mb-2 mt-3 first:mt-0">
+                              {children}
+                            </h2>
+                          ),
+                          h3: ({ children }) => (
+                            <h3 className="text-sm font-semibold mb-2 mt-3 first:mt-0">
+                              {children}
+                            </h3>
+                          ),
+                          strong: ({ children }) => (
+                            <strong className="font-semibold">{children}</strong>
+                          ),
+                          em: ({ children }) => <em className="italic">{children}</em>,
+                        }}
+                      >
+                        {translatedText}
+                      </ReactMarkdown>
                     )}
                   </div>
                 </div>

@@ -17,7 +17,7 @@ collection = client.get_collection(name=CHROMA_COLLECTION_NAME)
 results = collection.get(
     where={"$and": [
         {"type": "ipc"},
-        {"section": "420"}
+        {"section_number": "420"}
     ]},
     include=["documents", "metadatas"]
 )
@@ -34,13 +34,16 @@ if results['documents']:
 else:
     print("No documents found!")
     
-print("\nChecking all IPC sections in database...")
-all_ipc = collection.get(
-    where={"type": "ipc"},
+print("\nChecking all documents in database...")
+all_docs = collection.get(
     limit=10,
     include=["metadatas"]
 )
-print(f"Total IPC documents: {collection.count()}")
-print(f"Sample IPC metadata:")
-for meta in all_ipc['metadatas'][:5]:
-    print(f"  Section: {meta.get('section')}, Type: {type(meta.get('section'))}")
+print(f"Total documents in collection: {collection.count()}")
+print(f"\nSample metadata from first 5 documents:")
+for i, meta in enumerate(all_docs['metadatas'][:5], 1):
+    print(f"\n{i}. ID: {all_docs['ids'][i-1]}")
+    print(f"   Type: {meta.get('type')}")
+    print(f"   Section Number: {meta.get('section_number')}")
+    print(f"   Section Title: {meta.get('section_title', '')[:60]}...")
+    print(f"   Chunk: {meta.get('chunk_index')}/{meta.get('total_chunks')}")

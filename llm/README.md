@@ -1,6 +1,6 @@
 # Legal AI - Indian Law Assistant (RAG System)
 
-A complete Retrieval-Augmented Generation (RAG) system for querying Indian legal documents using **Ollama + Llama 3.3 + ChromaDB + Sentence Transformers**.
+A complete Retrieval-Augmented Generation (RAG) system for querying Indian legal documents using **Google Gemini + ChromaDB + Sentence Transformers**.
 
 ## 🎯 Project Overview
 
@@ -8,9 +8,8 @@ This project provides a FastAPI-based backend that allows users to ask questions
 
 - **Indian Penal Code (IPC)**
 - **Code of Criminal Procedure (CrPC)**
-- **Constitution of India**
+- **Code of Civil Procedure (CPC)**
 - **Indian Evidence Act**
-- **Other Acts** (Hindu Marriage Act, Motor Vehicles Act, etc.)
 
 ### Key Features
 
@@ -18,8 +17,8 @@ This project provides a FastAPI-based backend that allows users to ask questions
 ✅ **RAG Pipeline** - Retrieval + Prompt Building + LLM Generation  
 ✅ **ChromaDB Vector Store** - Persistent embeddings storage  
 ✅ **Sentence Transformers** - MiniLM-L6-v2 for embeddings  
-✅ **Ollama + Llama 3.3** - Local LLM inference  
-✅ **Structured Data** - Pre-processed JSON legal documents  
+✅ **Google Gemini API** - Powerful cloud-based LLM  
+✅ **Structured Data** - Pre-processed JSON legal documents from IndianKanoon.org  
 ✅ **Source Citations** - Answers include relevant section references  
 
 ---
@@ -67,20 +66,20 @@ LawStreet/
 ### Prerequisites
 
 1. **Python 3.8+** installed
-2. **Ollama** installed and running ([Install Ollama](https://ollama.ai))
-3. **Llama 3.3 model** pulled in Ollama
+2. **Google Gemini API Key** ([Get API Key](https://makersuite.google.com/app/apikey))
 
-### Step 1: Install Ollama and Llama 3.3
+### Step 1: Configure Gemini API
 
-```powershell
-# Install Ollama from https://ollama.ai
-
-# Pull Llama 3.3 model
-ollama pull llama3.3
-
-# Verify Ollama is running
-ollama list
-```
+1. Get your API key from [Google AI Studio](https://makersuite.google.com/app/apikey)
+2. Copy `.env.example` to `.env`:
+   ```powershell
+   cp .env.example .env
+   ```
+3. Edit `.env` and replace `your_gemini_api_key_here` with your actual API key:
+   ```
+   GEMINI_API_KEY=AIza...your_actual_key_here
+   GEMINI_MODEL=gemini-1.5-flash
+   ```
 
 ### Step 2: Clone/Setup Project
 
@@ -106,7 +105,8 @@ pip install -r requirements.txt
 - `chromadb` - Vector database
 - `sentence-transformers` - Embedding model
 - `torch` - PyTorch (for transformers)
-- `requests` - HTTP client for Ollama
+- `google-generativeai` - Gemini API client
+- `python-dotenv` - Environment variable loading
 - `tqdm` - Progress bars
 - `pydantic` - Data validation
 
@@ -153,7 +153,15 @@ Location: E:\LawStreet\vectorstore\chroma
 
 **Note:** First-time indexing will download the sentence-transformers model (~80MB) and may take 5-10 minutes depending on data size.
 
-### Step 5: Start the API Server
+### Step 5: Test Gemini Integration (Optional)
+
+Before starting the full server, test that Gemini is working:
+
+```powershell
+python test_gemini.py
+```
+
+### Step 6: Start the API Server
 
 ```powershell
 # Run the FastAPI server
@@ -167,10 +175,10 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 **Expected output:**
 ```
-Starting Legal AI Assistant v1.0.0
-Server will be available at http://0.0.0.0:8000
-API documentation at http://0.0.0.0:8000/docs
-✓ RAG Pipeline initialized successfully
+RAG Pipeline initialized with Gemini model: gemini-1.5-flash
+INFO:     Started server process
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
 INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
 ```
 

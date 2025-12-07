@@ -16,11 +16,11 @@ export class GeminiAgent implements AIAgent {
     const apiKey = process.env.GEMINI_API_KEY || "AIzaSyAup9S-1oRi-eNsbkIsxruWS9B6aAP2BTA";
     this.genAI = new GoogleGenerativeAI(apiKey);
     this.model = this.genAI.getGenerativeModel({ 
-      model: "gemini-1.5-flash",
+      model: "gemini-1.5-pro-latest",
       tools: [{
         functionDeclarations: [{
           name: "web_search",
-          description: "Search the web for information",
+          description: "Search the web for information when you need to look up current or additional details not in your training data",
           parameters: {
             type: "object",
             properties: {
@@ -63,28 +63,21 @@ export class GeminiAgent implements AIAgent {
       month: "long",
       day: "numeric",
     });
-    return `You are an Expert AI Legal Assistant specializing in Indian Law.
+    // This prompt is designed to be direct and clear for the AI model.
+    return `
+You are an expert AI Legal Assistant for Indian Law. Your primary role is to provide accurate and relevant information based on the user's questions about Indian legal topics.
 
-Your duties:
-- Provide accurate, fact-based information about Indian laws, acts, statutes, rights, legal processes, and general legal principles.
-- Use clear, simple language.
-- If the user’s issue involves private disputes (like landlord–tenant issues), explain the relevant legal framework and general steps.
-- DO NOT give personalized legal advice, legal interpretations, or guaranteed outcomes.
-- Recommend consulting a qualified Indian lawyer for any personal, actionable, or case-specific guidance.
+**Core Instructions:**
 
-Tools:
-- Use the "web_search" tool ONLY when the user asks for recent updates, judgments, notifications, or changes in law.
-- Always cite sources when using search results.
+1.  **Analyze the User's Question:** Carefully read the user's query and provide a direct answer. Do not provide information on unrelated legal topics.
+2.  **Scope of Knowledge:** Your expertise is limited to Indian Law. This includes the Indian Penal Code (IPC), Criminal Procedure Code (CrPC), Civil Procedure Code (CPC), the Constitution of India, and other Indian statutes. If the question is outside this scope, politely decline to answer.
+3.  **Your Identity:** When asked "who are you" or about your identity, describe yourself as an "AI Legal Assistant specializing in Indian Law."
+4.  **No Legal Advice:** Do NOT provide personalized legal advice, opinions, or predict outcomes of legal cases. Always end your responses with a disclaimer recommending consultation with a qualified Indian lawyer for specific legal problems.
+5.  **Use of Tools:** Use the 'web_search' tool ONLY when the user asks for very recent legal updates, new amendments, or current events that are not part of your core training data. Do not use it for general legal principles.
+6.  **Clarity:** Explain legal concepts in simple and clear language.
 
-Safety:
-- If a user request is outside Indian law, tell them politely.
-- Do not create fake laws or citations.
-- Do not draft binding legal documents (e.g., legal notices, petitions) — provide only sample formats.
-
-Current date: ${currentDate}
-
-Context:
-${context || "General Indian legal assistance."}
+**Current Date:** ${currentDate}
+${context ? `\n**Specific Task Context:** ${context}` : ""}
 `;
   };
 
@@ -120,18 +113,29 @@ ${context || "General Indian legal assistance."}
       message_id: channelMessage.id,
     });
 
-    const chat = this.model.startChat({
+    const chat = this.genAI.getGenerativeModel({ 
+      model: "gemini-1.5-pro-latest",
+      tools: [{
+        functionDeclarations: [{
+          name: "web_search",
+          description: "Search the web for information when you need to look up current or additional details not in your training data",
+          parameters: {
+            type: "object",
+            properties: {
+              query: { type: "string", description: "The search query" }
+            },
+            required: ["query"]
+          }
+        }]
+      }] as any
+    }).startChat({
       history: [
         { role: 'user', parts: [{ text: instructions }] },
-        { role: 'model', parts: [{ text: 'Understood. I will assist with Indian law questions accurately and professionally.' }] },
-        ...this.conversationHistory.slice(0, -1).map(h => ({
-          role: h.role,
-          parts: [{ text: h.parts }],
-        })),
-      ],
+        { role: 'model', parts: [{ text: 'Understood. I am ready to assist with Indian law questions.' }] }
+      ]
     });
 
-    const handler = new GeminiResponseHandler(this.genAI, chat, this.chatClient, this.channel, channelMessage, () => {
+    const handler = new GeminiResponseHandler(this.genAI, chat, this.chatClient, this.channel, channelMessage, message, () => {
       this.conversationHistory.push({
         role: "model",
         parts: handler.getMessageText(),

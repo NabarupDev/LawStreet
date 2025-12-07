@@ -12,6 +12,7 @@ export class GeminiResponseHandler {
     private readonly chatClient: StreamChat,
     private readonly channel: Channel,
     private readonly message: MessageResponse,
+    private readonly userMessage: string,
     private readonly onDispose: () => void
   ) {
     this.chatClient.on("ai_indicator.stop", this.handleStopGenerating);
@@ -21,7 +22,7 @@ export class GeminiResponseHandler {
 
   run = async () => {
     try {
-      const result = await this.chat.sendMessageStream(this.message.text);
+      const result = await this.chat.sendMessageStream(this.userMessage);
       if (!result.stream) throw new Error("Failed to get stream from Gemini API");
 
       let functionCalls: any[] = [];
@@ -66,6 +67,7 @@ export class GeminiResponseHandler {
         for (const call of functionCalls) {
           if (call.name === 'web_search') {
             const searchResult = await this.performWebSearch(call.args.query);
+            console.log('Search result for query:', call.args.query, 'Result length:', searchResult.length);
             toolResponses.push({
               functionResponse: {
                 name: call.name,
@@ -79,8 +81,12 @@ export class GeminiResponseHandler {
           role: 'user',
           parts: toolResponses
         };
+        console.log('Sending tool message with', toolResponses.length, 'responses');
         const result2 = await this.chat.sendMessageStream(toolMessage);
+        console.log('Sent tool message, got result2.stream:', !!result2.stream);
         if (!result2.stream) throw new Error("Failed to get stream from Gemini API after tool call");
+
+        this.message_text = ""; // Reset to only use the final response after tool call
 
         for await (const chunk of result2.stream) {
           if (this.is_done) break;
@@ -91,6 +97,7 @@ export class GeminiResponseHandler {
               if (content && content.parts) {
                 for (const part of content.parts) {
                   if (part.text) {
+                    console.log('Appending text chunk:', part.text.substring(0, 100));
                     if (this.message_text.length + part.text.length > 4900) {
                       const remainingSpace = 4900 - this.message_text.length;
                       this.message_text += part.text.substring(0, remainingSpace) + "... (response truncated due to length limit)";
@@ -156,6 +163,7 @@ export class GeminiResponseHandler {
   };
 
   private handleError = async (error: Error) => {
+    console.log('Error in GeminiResponseHandler:', error.message, error.stack);
     if (this.is_done) return;
     await this.channel.sendEvent({
       type: "ai_indicator.update",
@@ -210,7 +218,21 @@ export class GeminiResponseHandler {
       const data = await response.json();
       console.log(`Tavily search successful for query "${query}"`);
 
-      return JSON.stringify(data);
+      // Summarize the search results into readable text
+      let summary = `Search results for "${query}":\n`;
+      if (data.results && Array.isArray(data.results)) {
+        data.results.forEach((result: any, index: number) => {
+          summary += `${index + 1}. ${result.title || 'No title'}\n`;
+          summary += `   ${result.content || result.snippet || 'No content'}\n`;
+          if (result.url) summary += `   Source: ${result.url}\n`;
+          summary += '\n';
+        });
+      }
+      if (data.answer) {
+        summary += `Direct answer: ${data.answer}\n\n`;
+      }
+
+      return summary;
     } catch (error) {
       console.error(
         `An exception occurred during web search for "${query}":`,
