@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import axios from "axios";
 import type { Channel, MessageResponse, StreamChat } from "stream-chat";
 
 export class GeminiResponseHandler {
@@ -7,8 +7,7 @@ export class GeminiResponseHandler {
   private last_update_time = 0;
 
   constructor(
-    private readonly genAI: GoogleGenerativeAI,
-    private readonly chat: any,
+    private readonly llmApiUrl: string,
     private readonly chatClient: StreamChat,
     private readonly channel: Channel,
     private readonly message: MessageResponse,
@@ -22,102 +21,62 @@ export class GeminiResponseHandler {
 
   run = async () => {
     try {
-      const result = await this.chat.sendMessageStream(this.userMessage);
-      if (!result.stream) throw new Error("Failed to get stream from Gemini API");
+      console.log(`Calling LLM service at ${this.llmApiUrl}/ask with query:`, this.userMessage);
+      
+      // Call the LLM service
+      const response = await axios.post(
+        `${this.llmApiUrl}/ask`,
+        { query: this.userMessage },
+        { timeout: 120000 } // 120 second timeout
+      );
 
-      let functionCalls: any[] = [];
+      if (!response.data || !response.data.answer) {
+        throw new Error("Invalid response from LLM service");
+      }
 
-      for await (const chunk of result.stream) {
+      const answer = response.data.answer;
+      const sources = response.data.sources || [];
+
+      console.log(`Received answer from LLM service (length: ${answer.length})`);
+
+      // Simulate streaming by breaking the answer into chunks
+      const chunkSize = 50; // Characters per chunk
+      const chunks = [];
+      for (let i = 0; i < answer.length; i += chunkSize) {
+        chunks.push(answer.substring(i, i + chunkSize));
+      }
+
+      // Stream the response
+      for (const chunk of chunks) {
         if (this.is_done) break;
-        const candidates = chunk.candidates;
-        if (candidates) {
-          for (const candidate of candidates) {
-            const content = candidate.content;
-            if (content && content.parts) {
-              for (const part of content.parts) {
-                if (part.text) {
-                  if (this.message_text.length + part.text.length > 4900) {
-                    const remainingSpace = 4900 - this.message_text.length;
-                    this.message_text += part.text.substring(0, remainingSpace) + "... (response truncated due to length limit)";
-                    this.updateMessage(true);
-                    this.is_done = true;
-                    break;
-                  } else {
-                    this.message_text += part.text;
-                    this.updateMessage();
-                  }
-                }
-                if (part.functionCall) {
-                  functionCalls.push(part.functionCall);
-                }
-              }
-            }
-          }
+
+        if (this.message_text.length + chunk.length > 4900) {
+          const remainingSpace = 4900 - this.message_text.length;
+          this.message_text += chunk.substring(0, remainingSpace) + "... (response truncated due to length limit)";
+          this.updateMessage(true);
+          this.is_done = true;
+          break;
+        } else {
+          this.message_text += chunk;
+          this.updateMessage();
+          // Small delay to simulate streaming
+          await new Promise(resolve => setTimeout(resolve, 50));
         }
       }
 
-      if (functionCalls.length > 0 && !this.is_done) {
-        await this.channel.sendEvent({
-          type: "ai_indicator.update",
-          ai_state: "AI_STATE_EXTERNAL_SOURCES",
-          cid: this.message.cid,
-          message_id: this.message.id,
+      // Add sources to the response if available
+      if (sources.length > 0 && !this.is_done) {
+        let sourcesText = "\n\n**Sources:**\n";
+        sources.forEach((source: any, index: number) => {
+          sourcesText += `${index + 1}. ${source.source} - Section ${source.section}\n`;
         });
-        const toolResponses = [];
-        for (const call of functionCalls) {
-          if (call.name === 'web_search') {
-            const searchResult = await this.performWebSearch(call.args.query);
-            console.log('Search result for query:', call.args.query, 'Result length:', searchResult.length);
-            toolResponses.push({
-              functionResponse: {
-                name: call.name,
-                response: { result: searchResult }
-              }
-            });
-          }
-        }
-        // send the tool response as a new message to the chat
-        const toolMessage = {
-          role: 'user',
-          parts: toolResponses
-        };
-        console.log('Sending tool message with', toolResponses.length, 'responses');
-        const result2 = await this.chat.sendMessageStream(toolMessage);
-        console.log('Sent tool message, got result2.stream:', !!result2.stream);
-        if (!result2.stream) throw new Error("Failed to get stream from Gemini API after tool call");
-
-        this.message_text = ""; // Reset to only use the final response after tool call
-
-        for await (const chunk of result2.stream) {
-          if (this.is_done) break;
-          const candidates = chunk.candidates;
-          if (candidates) {
-            for (const candidate of candidates) {
-              const content = candidate.content;
-              if (content && content.parts) {
-                for (const part of content.parts) {
-                  if (part.text) {
-                    console.log('Appending text chunk:', part.text.substring(0, 100));
-                    if (this.message_text.length + part.text.length > 4900) {
-                      const remainingSpace = 4900 - this.message_text.length;
-                      this.message_text += part.text.substring(0, remainingSpace) + "... (response truncated due to length limit)";
-                      this.updateMessage(true);
-                      this.is_done = true;
-                      break;
-                    } else {
-                      this.message_text += part.text;
-                      this.updateMessage();
-                    }
-                  }
-                  // assuming no more function calls
-                }
-              }
-            }
-          }
+        
+        if (this.message_text.length + sourcesText.length <= 4900) {
+          this.message_text += sourcesText;
         }
       }
 
-      // final update
+      // Final update
       this.updateMessage(true);
       await this.channel.sendEvent({
         type: "ai_indicator.clear",
@@ -179,69 +138,4 @@ export class GeminiResponseHandler {
     await this.dispose();
   };
 
-  private performWebSearch = async (query: string): Promise<string> => {
-    const TAVILY_API_KEY = process.env.TAVILY_API_KEY;
-
-    if (!TAVILY_API_KEY) {
-      return JSON.stringify({
-        error: "Web search is not available. API key not configured.",
-      });
-    }
-
-    console.log(`Performing web search for: "${query}"`);
-
-    try {
-      const response = await fetch("https://api.tavily.com/search", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${TAVILY_API_KEY}`,
-        },
-        body: JSON.stringify({
-          query: query,
-          search_depth: "advanced",
-          max_results: 5,
-          include_answer: true,
-          include_raw_content: false,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`Tavily search failed for query "${query}":`, errorText);
-        return JSON.stringify({
-          error: `Search failed with status: ${response.status}`,
-          details: errorText,
-        });
-      }
-
-      const data = await response.json();
-      console.log(`Tavily search successful for query "${query}"`);
-
-      // Summarize the search results into readable text
-      let summary = `Search results for "${query}":\n`;
-      if (data.results && Array.isArray(data.results)) {
-        data.results.forEach((result: any, index: number) => {
-          summary += `${index + 1}. ${result.title || 'No title'}\n`;
-          summary += `   ${result.content || result.snippet || 'No content'}\n`;
-          if (result.url) summary += `   Source: ${result.url}\n`;
-          summary += '\n';
-        });
-      }
-      if (data.answer) {
-        summary += `Direct answer: ${data.answer}\n\n`;
-      }
-
-      return summary;
-    } catch (error) {
-      console.error(
-        `An exception occurred during web search for "${query}":`,
-        error
-      );
-      return JSON.stringify({
-        error: "An exception occurred during the search.",
-        message: error instanceof Error ? error.message : "Unknown error",
-      });
-    }
-  };
 }

@@ -179,21 +179,114 @@ This avoids reloading models and reconnecting to ChromaDB on every query.
 """
 import chromadb
 from chromadb.config import Settings
-import google.generativeai as genai
-from typing import List, Dict, Any, Optional
+import requests
+from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
+import re
+import json
 
 from app.config import (
     CHROMA_DIR,
     CHROMA_COLLECTION_NAME,
+    LLM_PROVIDER,
+    OLLAMA_BASE_URL,
+    OLLAMA_MODEL,
+    OLLAMA_TIMEOUT,
     GEMINI_API_KEY,
     GEMINI_MODEL,
     GEMINI_TIMEOUT,
     TOP_K_RESULTS,
     PROMPT_TEMPLATE_PATH,
-    MAX_CONTEXT_LENGTH
+    MAX_CONTEXT_LENGTH,
+    RELEVANCE_THRESHOLD,
+    USE_GEMINI_FOR_WEB_SEARCH
 )
 from app.embed import get_embedding_model
+from app.web_search import search_legal_web, format_web_results_as_context, is_tavily_configured
+from app.response_processor import post_process_response
+
+# Import Gemini if needed (for primary LLM or web search fallback)
+genai = None
+if LLM_PROVIDER == "gemini" or USE_GEMINI_FOR_WEB_SEARCH:
+    try:
+        import google.generativeai as genai
+    except ImportError:
+        print("Warning: google-generativeai not installed. Install with: pip install google-generativeai")
+        if LLM_PROVIDER == "gemini":
+            print("ERROR: Gemini selected but library not installed!")
+        genai = None
+
+
+def extract_section_info(query: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Extract section number and act type from a query.
+    
+    Handles patterns like:
+    - "IPC 420", "ipc section 420", "section 420 ipc"
+    - "CrPC 41", "crpc section 41"
+    - "Section 302", "sec 302"
+    
+    Returns:
+        Tuple of (section_number, act_type) or (None, None) if not found
+    """
+    query_lower = query.lower()
+    
+    # Pattern for "IPC 420", "ipc section 420", "section 420 of ipc"
+    patterns = [
+        # "IPC 420" or "ipc section 420"
+        r'\b(ipc|crpc|cpc|evidence)\s*(?:section)?\s*(\d+)\b',
+        # "section 420 ipc" or "section 420 of ipc"
+        r'\bsection\s*(\d+)\s*(?:of\s*)?(ipc|crpc|cpc|evidence)?\b',
+        # "sec 420" 
+        r'\bsec\.?\s*(\d+)\b',
+        # Just a number like "420" when asking "what is 420"
+        r'\bwhat\s+is\s+(\d+)\b',
+    ]
+    
+    # Try each pattern
+    for pattern in patterns:
+        match = re.search(pattern, query_lower)
+        if match:
+            groups = match.groups()
+            
+            # Handle different group orderings based on pattern
+            if pattern == patterns[0]:  # "IPC 420" pattern
+                act_type = groups[0]
+                section_num = groups[1]
+            elif pattern == patterns[1]:  # "section 420 ipc" pattern
+                section_num = groups[0]
+                act_type = groups[1] if len(groups) > 1 and groups[1] else None
+            else:  # Other patterns - just section number
+                section_num = groups[0]
+                act_type = None
+            
+            # Default to IPC if no act type specified (most common queries)
+            if act_type is None:
+                act_type = 'ipc'
+                
+            return section_num, act_type
+    
+    return None, None
+
+
+def expand_query_for_section(query: str, section_num: str, act_type: str) -> str:
+    """
+    Expand a query about a specific section to improve semantic matching.
+    
+    Adds relevant keywords based on the act type.
+    """
+    act_names = {
+        'ipc': 'Indian Penal Code IPC offense crime punishment penalty',
+        'crpc': 'Code of Criminal Procedure CrPC criminal procedure bail arrest',
+        'cpc': 'Code of Civil Procedure CPC civil procedure suit decree',
+        'evidence': 'Indian Evidence Act evidence witness proof testimony'
+    }
+    
+    act_keywords = act_names.get(act_type, '')
+    
+    # Create an expanded query
+    expanded = f"Section {section_num} {act_type.upper()} {act_keywords} {query}"
+    return expanded
 
 
 class RAGPipeline:
@@ -201,12 +294,45 @@ class RAGPipeline:
     
     def __init__(self):
         """Initialize the RAG pipeline"""
-        # Configure Gemini API
-        if not GEMINI_API_KEY:
-            raise ValueError("GEMINI_API_KEY not found in environment variables. Please set it in .env file")
+        self.llm_provider = LLM_PROVIDER
+        self.use_gemini_for_web = USE_GEMINI_FOR_WEB_SEARCH
         
-        genai.configure(api_key=GEMINI_API_KEY)
-        self.gemini_model = genai.GenerativeModel(GEMINI_MODEL)
+        # Configure primary LLM based on provider
+        if self.llm_provider == "ollama":
+            self.ollama_base_url = OLLAMA_BASE_URL
+            self.ollama_model = OLLAMA_MODEL
+            
+            # Verify Ollama is running
+            try:
+                response = requests.get(f"{self.ollama_base_url}/api/tags", timeout=5)
+                if response.status_code != 200:
+                    print(f"Warning: Ollama may not be running at {self.ollama_base_url}")
+            except requests.exceptions.ConnectionError:
+                print(f"Warning: Cannot connect to Ollama at {self.ollama_base_url}. Make sure Ollama is running.")
+            
+            print(f"RAG Pipeline initialized with Ollama model: {OLLAMA_MODEL}")
+            
+        elif self.llm_provider == "gemini":
+            if not GEMINI_API_KEY:
+                raise ValueError("GEMINI_API_KEY not found. Please set it in .env file.")
+            if genai is None:
+                raise ImportError("google-generativeai not installed. Run: pip install google-generativeai")
+            
+            genai.configure(api_key=GEMINI_API_KEY)
+            self.gemini_model = genai.GenerativeModel(GEMINI_MODEL)
+            print(f"RAG Pipeline initialized with Gemini model: {GEMINI_MODEL}")
+        else:
+            raise ValueError(f"Invalid LLM_PROVIDER: {self.llm_provider}. Use 'ollama' or 'gemini'")
+        
+        # Initialize Gemini for web search if enabled (even if primary is Ollama)
+        if self.use_gemini_for_web and self.llm_provider == "ollama":
+            if GEMINI_API_KEY and genai is not None:
+                genai.configure(api_key=GEMINI_API_KEY)
+                self.gemini_model = genai.GenerativeModel(GEMINI_MODEL)
+                print(f"Gemini ({GEMINI_MODEL}) enabled for web search results (faster)")
+            else:
+                print("Warning: USE_GEMINI_FOR_WEB_SEARCH=true but Gemini not configured. Will use Ollama for all queries.")
+                self.use_gemini_for_web = False
         
         # Initialize ChromaDB
         self.chroma_client = chromadb.PersistentClient(
@@ -221,8 +347,6 @@ class RAGPipeline:
         self.embedding_model = get_embedding_model()
         
         self.prompt_template = self._load_prompt_template()
-        
-        print(f"RAG Pipeline initialized with Gemini model: {GEMINI_MODEL}")
     
     def _load_prompt_template(self) -> str:
         """Load the prompt template from file"""
@@ -241,7 +365,11 @@ Answer: Provide a clear, accurate answer based on the legal context above. Cite 
     
     def retrieve_documents(self, query: str, top_k: int = TOP_K_RESULTS) -> List[Dict[str, Any]]:
         """
-        Retrieve relevant documents from ChromaDB
+        Retrieve relevant documents from ChromaDB using hybrid search.
+        
+        When a specific section number is detected in the query (e.g., "IPC 420"),
+        the method first tries to fetch that exact section, then supplements with
+        semantic search results.
         
         Args:
             query: User query string
@@ -250,22 +378,74 @@ Answer: Provide a clear, accurate answer based on the legal context above. Cite 
         Returns:
             List of retrieved documents with metadata
         """
-        query_embedding = self.embedding_model.embed_query(query)
-        
-        results = self.collection.query(
-            query_embeddings=[query_embedding],
-            n_results=top_k,
-            include=["documents", "metadatas", "distances"]
-        )
-        
         retrieved_docs = []
-        if results['documents'] and len(results['documents'][0]) > 0:
-            for idx, doc in enumerate(results['documents'][0]):
-                retrieved_docs.append({
-                    "content": doc,
-                    "metadata": results['metadatas'][0][idx] if results['metadatas'] else {},
-                    "distance": results['distances'][0][idx] if results['distances'] else 0
-                })
+        section_num, act_type = extract_section_info(query)
+        
+        # STEP 1: If query mentions a specific section, fetch it directly first
+        if section_num and act_type:
+            try:
+                # Try to get the exact section by metadata filter
+                exact_results = self.collection.get(
+                    where={
+                        "$and": [
+                            {"section_number": section_num},
+                            {"type": act_type}
+                        ]
+                    },
+                    include=["documents", "metadatas"]
+                )
+                
+                if exact_results['ids']:
+                    for idx, doc_id in enumerate(exact_results['ids']):
+                        retrieved_docs.append({
+                            "content": exact_results['documents'][idx],
+                            "metadata": exact_results['metadatas'][idx] if exact_results['metadatas'] else {},
+                            "distance": 0.0  # Exact match, best possible score
+                        })
+                    print(f"Found exact match for {act_type.upper()} Section {section_num}")
+            except Exception as e:
+                print(f"Error in exact match search: {e}")
+        
+        # STEP 2: Also do semantic search (with expanded query if section detected)
+        search_query = query
+        if section_num and act_type:
+            search_query = expand_query_for_section(query, section_num, act_type)
+        
+        query_embedding = self.embedding_model.embed_query(search_query)
+        
+        # Calculate how many more results we need
+        remaining_results = top_k - len(retrieved_docs)
+        if remaining_results > 0:
+            results = self.collection.query(
+                query_embeddings=[query_embedding],
+                n_results=remaining_results + len(retrieved_docs),  # Get extra to filter duplicates
+                include=["documents", "metadatas", "distances"]
+            )
+            
+            if results['documents'] and len(results['documents'][0]) > 0:
+                # Get IDs of already retrieved docs to avoid duplicates
+                existing_ids = set()
+                for doc in retrieved_docs:
+                    meta = doc.get('metadata', {})
+                    existing_ids.add(f"{meta.get('type', '')}_{meta.get('section_number', '')}")
+                
+                for idx, doc in enumerate(results['documents'][0]):
+                    if len(retrieved_docs) >= top_k:
+                        break
+                    
+                    meta = results['metadatas'][0][idx] if results['metadatas'] else {}
+                    doc_id = f"{meta.get('type', '')}_{meta.get('section_number', '')}"
+                    
+                    # Skip if already added (from exact match)
+                    if doc_id in existing_ids:
+                        continue
+                    
+                    retrieved_docs.append({
+                        "content": doc,
+                        "metadata": meta,
+                        "distance": results['distances'][0][idx] if results['distances'] else 0
+                    })
+                    existing_ids.add(doc_id)
         
         return retrieved_docs
     
@@ -348,7 +528,77 @@ Answer: Provide a clear, accurate answer based on the legal context above. Cite 
         )
         return prompt
     
-    def query_gemini(self, prompt: str) -> str:
+    def query_llm(self, prompt: str) -> str:
+        """
+        Send prompt to the configured LLM and get response
+        
+        Args:
+            prompt: Complete prompt string
+            
+        Returns:
+            Model response text
+        """
+        if self.llm_provider == "ollama":
+            return self._query_ollama(prompt)
+        elif self.llm_provider == "gemini":
+            return self._query_gemini(prompt)
+        else:
+            return f"Error: Unknown LLM provider: {self.llm_provider}"
+    
+    def _query_ollama(self, prompt: str) -> str:
+        """
+        Send prompt to Ollama and get response
+        
+        Args:
+            prompt: Complete prompt string
+            
+        Returns:
+            Model response text
+        """
+        import time
+        
+        try:
+            print(f"Sending request to Ollama ({self.ollama_model})...")
+            print(f"Prompt length: {len(prompt)} characters")
+            start_time = time.time()
+            
+            payload = {
+                "model": self.ollama_model,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": 0.7,
+                    "top_p": 0.9,
+                    "top_k": 40,
+                    "num_predict": 512,  # Reduced for faster response
+                    "num_ctx": 4096,     # Context window
+                    "num_gpu": 1         # Use GPU if available
+                }
+            }
+            
+            response = requests.post(
+                f"{self.ollama_base_url}/api/generate",
+                json=payload,
+                timeout=OLLAMA_TIMEOUT
+            )
+            
+            elapsed = time.time() - start_time
+            print(f"Ollama response received in {elapsed:.2f} seconds")
+            
+            if response.status_code == 200:
+                result = response.json()
+                return result.get("response", "No response generated from Ollama")
+            else:
+                return f"Error: Ollama returned status code {response.status_code}"
+            
+        except requests.exceptions.ConnectionError:
+            return "Error: Cannot connect to Ollama. Make sure Ollama is running with 'ollama serve'"
+        except requests.exceptions.Timeout:
+            return "Error: Request timed out. The model may be loading or the query is too complex."
+        except Exception as e:
+            return f"Error querying Ollama: {str(e)}"
+    
+    def _query_gemini(self, prompt: str) -> str:
         """
         Send prompt to Gemini and get response
         
@@ -358,7 +608,13 @@ Answer: Provide a clear, accurate answer based on the legal context above. Cite 
         Returns:
             Model response text
         """
+        import time
+        
         try:
+            print(f"Sending request to Gemini ({GEMINI_MODEL})...")
+            print(f"Prompt length: {len(prompt)} characters")
+            start_time = time.time()
+            
             generation_config = genai.types.GenerationConfig(
                 temperature=0.7,
                 top_p=0.9,
@@ -372,6 +628,9 @@ Answer: Provide a clear, accurate answer based on the legal context above. Cite 
                 request_options={'timeout': GEMINI_TIMEOUT}
             )
             
+            elapsed = time.time() - start_time
+            print(f"Gemini response received in {elapsed:.2f} seconds")
+            
             if response and response.text:
                 return response.text
             else:
@@ -380,17 +639,49 @@ Answer: Provide a clear, accurate answer based on the legal context above. Cite 
         except Exception as e:
             error_msg = str(e)
             if "API_KEY" in error_msg.upper():
-                return "Error: Invalid or missing Gemini API key. Please check your .env file"
+                return "Error: Check your Gemini API key in the .env file."
             elif "quota" in error_msg.lower():
-                return "Error: Gemini API quota exceeded. Please check your usage limits"
+                return "Error: Gemini API quota exceeded. Please check your usage limits."
             elif "timeout" in error_msg.lower():
-                return "Error: Request to Gemini timed out. The query may be too complex."
+                return "Error: Request timed out. Please try again."
             else:
                 return f"Error querying Gemini: {error_msg}"
     
+    def _check_relevance(self, retrieved_docs: List[Dict[str, Any]], query: str) -> bool:
+        """
+        Check if retrieved documents are relevant enough.
+        
+        Returns True if documents are relevant (should use local DB),
+        Returns False if we should fall back to web search.
+        """
+        if not retrieved_docs:
+            return False
+        
+        # Check if we have an exact match (distance = 0.0)
+        best_distance = retrieved_docs[0].get('distance', 1.0)
+        if best_distance == 0.0:
+            return True
+        
+        # Extract section info from query
+        section_num, act_type = extract_section_info(query)
+        
+        # If user asked for a specific section, check if we found it
+        if section_num and act_type:
+            for doc in retrieved_docs:
+                meta = doc.get('metadata', {})
+                if (meta.get('section_number') == section_num and 
+                    meta.get('type') == act_type):
+                    return True
+            # Specific section requested but not found
+            return False
+        
+        # For general queries, use distance threshold
+        return best_distance < RELEVANCE_THRESHOLD
+    
     def ask(self, query: str) -> Dict[str, Any]:
         """
-        Complete RAG pipeline: retrieve, build prompt, and generate answer
+        Complete RAG pipeline: retrieve, build prompt, and generate answer.
+        Falls back to web search if local data is not relevant.
         
         Args:
             query: User question
@@ -400,24 +691,95 @@ Answer: Provide a clear, accurate answer based on the legal context above. Cite 
         """
         retrieved_docs = self.retrieve_documents(query)
         
-        context = self.build_context(retrieved_docs)
+        # Check if local DB results are relevant
+        use_local_db = self._check_relevance(retrieved_docs, query)
+        used_web_search = False
+        web_search_results = None
+        
+        if use_local_db:
+            # Use local database results
+            context = self.build_context(retrieved_docs)
+        else:
+            # Fall back to web search
+            print(f"Local DB not relevant enough, trying web search for: {query}")
+            
+            if is_tavily_configured():
+                web_search_results = search_legal_web(query)
+                
+                if web_search_results.get("success") and web_search_results.get("results"):
+                    used_web_search = True
+                    context = format_web_results_as_context(web_search_results)
+                    print(f"Web search returned {len(web_search_results['results'])} results")
+                else:
+                    # Web search failed, use whatever we have from local DB
+                    context = self.build_context(retrieved_docs)
+                    if not retrieved_docs:
+                        context = f"No relevant information found in local database or web search for: {query}"
+            else:
+                # Tavily not configured, use local DB results anyway
+                context = self.build_context(retrieved_docs)
+                print("Tavily not configured, using local DB results")
         
         prompt = self.build_prompt(query, context)
         
-        answer = self.query_gemini(prompt)
+        # Choose LLM based on whether we're using web search results
+        if used_web_search and self.use_gemini_for_web and hasattr(self, 'gemini_model'):
+            print("Using Gemini for web search results (faster)")
+            raw_answer = self._query_gemini(prompt)
+        elif self.llm_provider == "ollama":
+            raw_answer = self._query_ollama(prompt)
+        else:
+            raw_answer = self._query_gemini(prompt)
+        
+        # Post-process response to ensure structure, fix escalations, and add safety
+        answer = post_process_response(raw_answer, query)
+        
+        # Build source information
+        sources = []
+        
+        if used_web_search and web_search_results:
+            # Sources from web search
+            for result in web_search_results.get("results", [])[:3]:
+                sources.append({
+                    "source": result.get("title", "Web Source"),
+                    "section": "Web",
+                    "type": "web",
+                    "url": result.get("url", ""),
+                    "distance": round(1.0 - result.get("score", 0), 3)
+                })
+        else:
+            # Sources from local DB
+            for doc in retrieved_docs[:3]:
+                meta = doc.get('metadata', {})
+                doc_type = meta.get('type', '')
+                section_num = meta.get('section_number', meta.get('section', meta.get('article', 'N/A')))
+                
+                # Create a proper source name based on document type
+                if doc_type == 'ipc':
+                    source_name = f"IPC Section {section_num}"
+                elif doc_type == 'crpc':
+                    source_name = f"CrPC Section {section_num}"
+                elif doc_type == 'cpc':
+                    source_name = f"CPC Section {section_num}"
+                elif doc_type == 'evidence':
+                    source_name = f"Evidence Act Section {section_num}"
+                else:
+                    source_name = meta.get('source', 'Unknown')
+                
+                sources.append({
+                    "source": source_name,
+                    "section": str(section_num),
+                    "type": doc_type,
+                    "url": meta.get('url', ''),
+                    "distance": round(doc.get('distance', 0), 3)
+                })
         
         return {
             "answer": answer,
             "query": query,
             "num_retrieved_docs": len(retrieved_docs),
-            "sources": [
-                {
-                    "source": doc.get('metadata', {}).get('source', 'Unknown'),
-                    "section": str(doc.get('metadata', {}).get('section', doc.get('metadata', {}).get('article', 'N/A'))),
-                    "distance": round(doc.get('distance', 0), 3)
-                }
-                for doc in retrieved_docs[:3]  # Top 3 sources
-            ]
+            "used_web_search": used_web_search,
+            "sources": sources
         }
 
 

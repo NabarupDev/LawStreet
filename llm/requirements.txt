@@ -10,8 +10,12 @@ chromadb
 sentence-transformers
 torch
 
-# Google Gemini API
-google-generativeai
+# LLM Providers
+requests  # For Ollama API
+google-generativeai  # For Gemini API (optional, only if using LLM_PROVIDER=gemini)
+
+# Web search (Tavily)
+httpx
 
 # Utilities
 python-multipart

@@ -110,7 +110,9 @@ class QueryRequest(BaseModel):
 class SourceInfo(BaseModel):
     """Information about a source document"""
     source: str
-    section: str 
+    section: str
+    type: Optional[str] = None
+    url: Optional[str] = None
     distance: float
     
     @classmethod
@@ -125,6 +127,7 @@ class QueryResponse(BaseModel):
     answer: str = Field(..., description="Generated answer from the legal assistant")
     query: str = Field(..., description="Original query")
     num_retrieved_docs: int = Field(..., description="Number of documents retrieved")
+    used_web_search: bool = Field(default=False, description="Whether web search was used as fallback")
     sources: List[SourceInfo] = Field(..., description="Top source documents used")
 
 

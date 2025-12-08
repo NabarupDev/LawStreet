@@ -1,6 +1,6 @@
 # Legal AI - Indian Law Assistant (RAG System)
 
-A complete Retrieval-Augmented Generation (RAG) system for querying Indian legal documents using **Google Gemini + ChromaDB + Sentence Transformers**.
+A complete Retrieval-Augmented Generation (RAG) system for querying Indian legal documents using **Ollama/Gemini + ChromaDB + Sentence Transformers**.
 
 ## 🎯 Project Overview
 
@@ -17,9 +17,49 @@ This project provides a FastAPI-based backend that allows users to ask questions
 ✅ **RAG Pipeline** - Retrieval + Prompt Building + LLM Generation  
 ✅ **ChromaDB Vector Store** - Persistent embeddings storage  
 ✅ **Sentence Transformers** - MiniLM-L6-v2 for embeddings  
-✅ **Google Gemini API** - Powerful cloud-based LLM  
+✅ **Flexible LLM Support** - Choose between Ollama (local) or Gemini (cloud)  
+✅ **Ollama Support** - Run phi4-mini locally with no rate limits  
+✅ **Google Gemini API** - Powerful cloud-based LLM alternative  
 ✅ **Structured Data** - Pre-processed JSON legal documents from IndianKanoon.org  
-✅ **Source Citations** - Answers include relevant section references  
+✅ **Source Citations** - Answers include relevant section references
+
+## 🔀 Switching Between LLM Providers
+
+You can easily switch between **Ollama (local)** and **Gemini (cloud)** by changing one environment variable:
+
+### Using Ollama (Local, No Rate Limits)
+```env
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=phi4-mini
+```
+
+**Setup:**
+1. Install Ollama: https://ollama.ai
+2. Run: `ollama serve`
+3. Pull model: `ollama pull phi4-mini`
+
+### Using Gemini (Cloud, Faster)
+```env
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=your_api_key_here
+GEMINI_MODEL=gemini-1.5-flash
+```
+
+**Setup:**
+1. Get API key from: https://makersuite.google.com/app/apikey
+2. Install: `pip install google-generativeai`
+
+### Comparison
+
+| Feature | Ollama (phi4-mini) | Gemini (1.5-flash) |
+|---------|-------------------|-------------------|
+| Cost | Free | Free tier available |
+| Rate Limits | None | Yes (15 RPM) |
+| Privacy | Complete (local) | Cloud-based |
+| Speed | ~135s per query | ~3-5s per query |
+| Setup | Requires local GPU/CPU | API key only |
+| Reasoning | Excellent | Excellent |  
 
 ---
 
