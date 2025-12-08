@@ -14,7 +14,6 @@ from typing import Dict, Any, List, Tuple
 # FORBIDDEN PHRASES - Replace with safer alternatives
 # ============================================================================
 FORBIDDEN_PHRASES = [
-    # Document references
     (r"[Bb]ased on the provided documents?", "Generally"),
     (r"[Bb]ased on the context provided", "Under Indian law"),
     (r"[Bb]ased on the legal documents?", "Typically"),
@@ -25,13 +24,11 @@ FORBIDDEN_PHRASES = [
     (r"[Aa]ccording to the text", "Generally"),
     (r"[Tt]he text (?:does not |doesn't )", "The specific provision "),
     
-    # Information limitations
     (r"[Ii] don'?t have (?:enough )?information", "While specifics may vary"),
     (r"[Ii] cannot find", "The specific provision may vary, but"),
     (r"[Nn]o information (?:is )?available", "While specific details may vary"),
     (r"[Ii] (?:do not|don't) have access", "The specific details may vary"),
     
-    # Absolute commands
     (r"[Yy]ou should", "You may consider"),
     (r"[Yy]ou must", "It may be advisable to"),
     (r"[Yy]ou need to", "You might want to"),
@@ -43,13 +40,11 @@ FORBIDDEN_PHRASES = [
     (r"[Tt]his is always", "This is typically"),
     (r"[Tt]his is never", "This is generally not"),
     
-    # Absolute certainty
     (r"\balways\b", "typically"),
     (r"\bnever\b", "generally not"),
     (r"\bdefinitely\b", "likely"),
     (r"\bcertainly\b", "generally"),
     
-    # DANGEROUS LANGUAGE - "threaten" must never be used
     (r"[Yy]ou can threaten", "You may inform them of your intention to pursue"),
     (r"[Tt]hreaten(?:ing)? legal action", "informing of your intention to pursue legal remedies"),
     (r"[Tt]hreaten(?:ing)? to (?:sue|file)", "communicating your intention to pursue"),
@@ -66,20 +61,17 @@ CIVIL_MATTERS_NO_POLICE = [
     r"\b(?:rent\s+(?:due|unpaid)|deposit\s+(?:return|refund))\b",
 ]
 
-# Topics where police is WRONG escalation
 CIVIL_ONLY_TOPICS = ["debt", "contract", "civil", "money_recovery"]
 
 # ============================================================================
 # INCORRECT ESCALATION FIXES
 # ============================================================================
 ESCALATION_FIXES = [
-    # Employment disputes - NOT Consumer Forum
     (r"[Cc]onsumer [Ff]orum.*(?:employ|labour|labor|salary|termination|workplace|job|dismissal)",
      "Labour Commissioner, Industrial Tribunal, or Labour Court"),
     (r"(?:employ|labour|labor|salary|termination|workplace|job|dismissal).*[Cc]onsumer [Ff]orum",
      "Labour Commissioner, Industrial Tribunal, or Labour Court"),
     
-    # Tenancy disputes - NOT Consumer Forum
     (r"[Cc]onsumer [Ff]orum.*(?:tenant|landlord|rent|tenancy|eviction|lease)",
      "Rent Controller, Rent Tribunal, or Civil Court"),
     (r"(?:tenant|landlord|rent|tenancy|eviction|lease).*[Cc]onsumer [Ff]orum",
@@ -126,7 +118,6 @@ TOPIC_PATTERNS = {
     ]
 }
 
-# Correct escalation paths by topic
 CORRECT_ESCALATIONS = {
     "employment": "Labour Commissioner, Industrial Tribunal, or Labour Court",
     "tenancy": "Rent Controller, Rent Tribunal, or Civil Court",
@@ -155,7 +146,7 @@ STATE_SPECIFIC_TOPICS = [
 # PRIVACY & EVIDENCE WARNINGS - CRITICAL SAFETY
 # ============================================================================
 PRIVACY_WARNING_STRONG = """
-⚠️ **Critical Privacy Warning:**
+ **Critical Privacy Warning:**
 • Accessing someone's phone, messages, or accounts WITHOUT their consent may be illegal (privacy violation, IT Act offenses, or theft)
 • Admissibility ≠ Permission — courts may accept evidence, but OBTAINING it illegally is a separate offense
 • Evidence ≠ Proof — screenshots or messages alone rarely prove anything conclusively in court
@@ -163,14 +154,13 @@ PRIVACY_WARNING_STRONG = """
 """
 
 FAMILY_EVIDENCE_WARNING = """
-⚠️ **Important for Family/Divorce Matters:**
+ **Important for Family/Divorce Matters:**
 • Private messages showing infidelity are NOT automatic grounds for divorce in India
 • Family courts evaluate overall conduct and circumstances, not just digital evidence
 • Illegally obtained evidence may be admitted but could affect your credibility
 • The burden of proof in family matters differs from criminal cases
 """
 
-# Keywords that trigger privacy warnings - must indicate OBTAINING evidence (not just mentioning)
 EVIDENCE_KEYWORDS = [
     r"\b(?:record(?:ing)?|spy|surveillance|monitor|track|hack)\b",  # Active surveillance
     r"\b(?:screenshot|phone\s+tap|hidden\s+camera)\b",  # Covert collection
@@ -179,14 +169,12 @@ EVIDENCE_KEYWORDS = [
     # Note: "cheating" moved to context-aware check - IPC 420 cheating is different from relationship cheating
 ]
 
-# Keywords that should NOT trigger privacy warnings (normal evidence discussion)
 NORMAL_EVIDENCE_CONTEXTS = [
     r"\b(?:bank\s+statement|receipt|invoice|contract|agreement)\b",
     r"\b(?:witness|testimony|document|letter|notice)\b",
     r"\b(?:IPC|section\s+\d+|penal\s+code|criminal)\b",  # Criminal law contexts
 ]
 
-# IPC/Criminal law keywords - these indicate criminal cheating (Section 420), NOT relationship cheating
 CRIMINAL_CHEATING_CONTEXT = [
     r"\b(?:IPC|section|penal\s+code|BNS)\b",
     r"\b(?:420|fraud|dishonest|property|induce)\b",
@@ -202,7 +190,6 @@ FAMILY_EVIDENCE_KEYWORDS = [
     r"\b(?:prove.*(?:cheating|affair|infidelity))\b",
 ]
 
-# Blocks to remove from responses
 BLOCKS_TO_REMOVE = [
     r"\n*\*?\*?Sources?:?\*?\*?:?\s*\n[-•*].*?(?=\n\n|\n\*\*|$)",
     r"\n*\*?\*?References?:?\*?\*?:?\s*\n[-•*].*?(?=\n\n|\n\*\*|$)",
@@ -220,7 +207,7 @@ This applies to Indian law, which can vary significantly by state. Your state ma
 
 DEFAULT_DISCLAIMER = """
 ---
-⚠️ **Disclaimer:** This is general legal information, not legal advice. Consult a qualified lawyer for advice specific to your situation.
+ **Disclaimer:** This is general legal information, not legal advice. Consult a qualified lawyer for advice specific to your situation.
 """
 
 DEFAULT_NEXT_STEPS_TEMPLATE = """
@@ -248,11 +235,8 @@ def detect_topic(text: str, query: str = "") -> str:
     Returns:
         Detected topic string
     """
-    # If query is provided separately, weight it more heavily
     if query:
         query_topic = _detect_topic_from_text(query.lower())
-        # If query clearly identifies a topic, use that
-        # This prevents response content (like "FIR") from overriding user intent
         if query_topic != "default":
             return query_topic
     
@@ -285,19 +269,14 @@ def needs_privacy_warning(text: str) -> bool:
     """
     text_lower = text.lower()
     
-    # First check if this is a criminal law context (IPC 420 cheating, etc.)
-    # IPC 420 "cheating" is about fraud, not relationship infidelity
     is_criminal_context = any(re.search(p, text_lower, re.IGNORECASE) for p in CRIMINAL_CHEATING_CONTEXT)
     if is_criminal_context:
-        return False  # Don't show privacy warning for criminal law questions
+        return False  
     
-    # Check for surveillance/covert collection keywords
     has_evidence_concern = any(re.search(p, text_lower, re.IGNORECASE) for p in EVIDENCE_KEYWORDS)
     
-    # Check for normal evidence contexts (bank statements, witnesses, etc.)
     has_normal_evidence = any(re.search(p, text_lower, re.IGNORECASE) for p in NORMAL_EVIDENCE_CONTEXTS)
     
-    # Check for relationship infidelity (not IPC 420 criminal cheating)
     is_relationship_infidelity = bool(re.search(
         r"\b(?:spouse|husband|wife|marriage|divorce).*(?:cheating|affair|infidelity)\b|\b(?:cheating|affair|infidelity).*(?:spouse|husband|wife|marriage|divorce)\b",
         text_lower, re.IGNORECASE
@@ -323,11 +302,9 @@ def fix_escalation_paths(response: str, topic: str) -> str:
     """Fix incorrect escalation suggestions based on topic."""
     fixed = response
     
-    # Apply specific fixes
     for pattern, replacement in ESCALATION_FIXES:
         fixed = re.sub(pattern, replacement, fixed, flags=re.IGNORECASE)
     
-    # If Consumer Forum mentioned for non-consumer topics, fix it
     if topic in ["employment", "tenancy"] and re.search(r"[Cc]onsumer\s+[Ff]orum", fixed):
         correct_path = CORRECT_ESCALATIONS.get(topic, CORRECT_ESCALATIONS["default"])
         fixed = re.sub(
@@ -336,7 +313,6 @@ def fix_escalation_paths(response: str, topic: str) -> str:
             fixed
         )
     
-    # CRITICAL: Block police escalation for civil matters
     fixed = block_police_for_civil_matters(fixed, topic)
     
     return fixed
@@ -348,23 +324,17 @@ def block_police_for_civil_matters(response: str, topic: str) -> str:
     Police should NOT be contacted for civil disputes - this is a common misconception
     that can waste police resources and harm the person following the advice.
     """
-    # Only apply to civil-only topics
     if topic not in CIVIL_ONLY_TOPICS:
         return response
     
     fixed = response
     civil_remedy = "Civil Court, legal notice, or mediation"
     
-    # Patterns that wrongly suggest police for civil matters - order matters!
-    # More specific patterns first, then general ones
     police_patterns = [
-        # Combined patterns first
         (r"[Ff]ile\s+(?:an?\s+)?FIR\s+at\s+(?:the\s+)?police\s+station", f"pursue civil remedies through {civil_remedy}"),
         (r"[Ll]odge\s+(?:an?\s+)?FIR\s+(?:at|with)\s+(?:the\s+)?police", f"file a civil suit or send a legal notice"),
-        # Misleading statements about police helping with debt
         (r"[Tt]he\s+police\s+(?:will|can)\s+help(?:\s+you)?(?:\s+recover)?(?:\s+the\s+money)?", "Civil courts can help through a money suit to recover the amount"),
         (r"[Pp]olice\s+(?:will|can)\s+(?:help|assist|recover)(?:\s+the\s+money)?", "Civil remedies through courts can help"),
-        # Individual patterns
         (r"[Ff]ile\s+(?:an?\s+)?FIR", "send a legal notice or file a civil suit"),
         (r"[Ll]odge\s+(?:an?\s+)?FIR", "send a legal notice"),
         (r"[Aa]pproach\s+(?:the\s+)?police", f"approach {civil_remedy}"),
@@ -378,11 +348,9 @@ def block_police_for_civil_matters(response: str, topic: str) -> str:
     for pattern, replacement in police_patterns:
         fixed = re.sub(pattern, replacement, fixed, flags=re.IGNORECASE)
     
-    # Add clarification if police was mentioned
     if re.search(r"\bpolice\b|\bFIR\b", response, re.IGNORECASE) and topic == "debt":
         civil_note = "\n\n**Important:** Non-payment of debt is generally a civil matter, not a criminal offense. Police typically cannot help recover private debts. The proper remedy is through civil courts or legal notice."
         if civil_note not in fixed:
-            # Add before disclaimer
             if "**Disclaimer" in fixed:
                 fixed = fixed.replace("**Disclaimer", civil_note + "\n\n**Disclaimer")
             else:
@@ -401,14 +369,12 @@ def add_state_variation_note(response: str) -> str:
     has_state_note = any(re.search(p, response, re.IGNORECASE) for p in state_phrases)
     
     if not has_state_note:
-        # Add to Important Context section if exists
         if "**Important Context:**" in response:
             response = response.replace(
                 "**Important Context:**",
                 "**Important Context:**\n• This may vary by state - some states have specific laws that differ"
             )
         elif "**Quick Answer:**" in response:
-            # Add after Quick Answer
             parts = response.split("**Quick Answer:**", 1)
             if len(parts) == 2:
                 answer_parts = parts[1].split("\n\n", 1)
@@ -426,7 +392,6 @@ def add_privacy_warning(response: str, query: str = "") -> str:
     """Add strong privacy warning for evidence/surveillance topics."""
     combined = f"{query} {response}".lower()
     
-    # Check if already has adequate privacy warning
     strong_warning_phrases = [
         "without consent", "illegal", "separate offense", 
         "legal risk", "privacy violation", "obtaining it"
@@ -436,18 +401,15 @@ def add_privacy_warning(response: str, query: str = "") -> str:
     if has_strong_warning:
         return response
     
-    # Check if this is a family/divorce + evidence question
     is_family_evidence = any(
         re.search(p, combined, re.IGNORECASE) for p in FAMILY_EVIDENCE_KEYWORDS
     )
     
-    # Choose appropriate warning
     if is_family_evidence:
         warning = FAMILY_EVIDENCE_WARNING + PRIVACY_WARNING_STRONG
     else:
         warning = PRIVACY_WARNING_STRONG
     
-    # Add before disclaimer
     if "**Disclaimer" in response:
         response = response.replace("**Disclaimer", warning + "\n**Disclaimer")
     elif "Disclaimer:" in response:
@@ -469,7 +431,6 @@ def remove_source_blocks(response: str) -> str:
     for pattern in BLOCKS_TO_REMOVE:
         cleaned = re.sub(pattern, "", cleaned, flags=re.DOTALL | re.MULTILINE)
     
-    # Also remove simple "Sources:" lines
     cleaned = re.sub(r"\n\*?\*?Sources?:?\*?\*?\s*\n", "\n", cleaned)
     cleaned = re.sub(r"\n\*?\*?References?:?\*?\*?\s*\n", "\n", cleaned)
     cleaned = re.sub(r"\n\*?\*?Referenced Sections?:?\*?\*?\s*\n", "\n", cleaned)
@@ -481,10 +442,9 @@ def needs_family_evidence_warning(text: str) -> bool:
     """Check if query involves family matters + evidence collection."""
     text_lower = text.lower()
     
-    # First check if this is a criminal law context (IPC 420 cheating, etc.)
     is_criminal_context = any(re.search(p, text_lower, re.IGNORECASE) for p in CRIMINAL_CHEATING_CONTEXT)
     if is_criminal_context:
-        return False  # Don't show family warning for criminal law questions
+        return False  
     
     return any(re.search(p, text_lower, re.IGNORECASE) for p in FAMILY_EVIDENCE_KEYWORDS)
 
@@ -603,17 +563,13 @@ def enforce_word_limit(response: str, max_words: int = 220) -> str:
     if len(words) <= max_words:
         return response
     
-    # Keep essential sections, trim content
     sections = ["Quick Answer", "Important Context", "Jurisdiction", "Next Steps", "Disclaimer"]
     
-    # Find disclaimer position and preserve it
     disclaimer_match = re.search(r'(---\s*\n*⚠️\s*\*\*Disclaimer.*)', response, re.DOTALL)
     disclaimer = disclaimer_match.group(1) if disclaimer_match else DEFAULT_DISCLAIMER
     
-    # Remove disclaimer from main text
     main_text = re.sub(r'---\s*\n*⚠️\s*\*\*Disclaimer.*', '', response, flags=re.DOTALL)
     
-    # Trim main text
     main_words = main_text.split()
     if len(main_words) > max_words - 30:  # Reserve words for disclaimer
         main_text = ' '.join(main_words[:max_words - 30]) + "..."
@@ -638,44 +594,31 @@ def post_process_response(response: str, query: str = "") -> str:
     if not response or response.startswith("Error"):
         return response
     
-    # Detect topic - prioritize query over response to prevent response content
-    # (like "FIR" in bad advice) from overriding user's actual question topic
     combined_text = f"{query} {response}"
     topic = detect_topic(combined_text, query=query)
     
-    # Step 1: Remove source/reference blocks first
     processed = remove_source_blocks(response)
     
-    # Step 2: Clean forbidden phrases
     processed = clean_response(processed)
     
-    # Step 3: Fix incorrect escalation paths
     processed = fix_escalation_paths(processed, topic)
     
-    # Step 4: Truncate long case law citations
     processed = truncate_case_law(processed)
     
-    # Step 5: Format structure if needed
     processed = format_response_structure(processed)
     
-    # Step 6: Add state variation note if needed
     if needs_state_variation_note(combined_text):
         processed = add_state_variation_note(processed)
     
-    # Step 7: Add privacy/evidence warning if needed (with query for context)
     if needs_privacy_warning(combined_text) or needs_family_evidence_warning(combined_text):
         processed = add_privacy_warning(processed, query)
     
-    # Step 8: Ensure jurisdiction note
     processed = ensure_jurisdiction_note(processed)
     
-    # Step 9: Ensure next steps with correct escalation
     processed = ensure_next_steps(processed, topic)
     
-    # Step 10: Ensure disclaimer at end
     processed = ensure_disclaimer(processed)
     
-    # Step 11: Enforce word limit (increased for warnings)
     processed = enforce_word_limit(processed, max_words=280)
     
     return processed.strip()
@@ -694,13 +637,11 @@ def check_response_quality(response: str) -> Dict[str, Any]:
     has_next_steps = "Next Steps" in response
     has_disclaimer = "Disclaimer" in response or "not legal advice" in response.lower()
     
-    # Check for remaining forbidden phrases
     has_forbidden = any(
         re.search(pattern, response) 
         for pattern, _ in FORBIDDEN_PHRASES
     )
     
-    # Check for incorrect escalation
     has_wrong_escalation = bool(re.search(
         r"[Cc]onsumer\s+[Ff]orum.*(?:employ|tenant|rent|labour)",
         response

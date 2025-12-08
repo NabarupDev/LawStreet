@@ -57,7 +57,6 @@ def test_ollama():
             print(f"  ✓ Ollama is running")
             print(f"  Available models: {len(models)}")
             
-            # Check for llama3.3
             model_names = [m.get("name", "") for m in models]
             has_llama = any("llama3.3" in name.lower() for name in model_names)
             

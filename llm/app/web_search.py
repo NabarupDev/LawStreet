@@ -57,10 +57,8 @@ def search_legal_web(query: str, max_results: int = TAVILY_MAX_RESULTS) -> Dict[
         }
     
     try:
-        # Enhance query for Indian legal context
         enhanced_query = f"Indian law legal {query}"
         
-        # Tavily API request
         response = httpx.post(
             "https://api.tavily.com/search",
             json={

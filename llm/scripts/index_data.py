@@ -267,19 +267,15 @@ def chunk_text(text: str, chunk_size: int = 800, overlap: int = 200) -> list[str
     while start < len(text):
         end = start + chunk_size
         
-        # If this is not the last chunk, try to break at a sentence or word boundary
         if end < len(text):
-            # Look for sentence boundary (., !, ?)
             last_period = text.rfind('.', start, end)
             last_question = text.rfind('?', start, end)
             last_exclaim = text.rfind('!', start, end)
             boundary = max(last_period, last_question, last_exclaim)
             
-            # If no sentence boundary, look for word boundary
             if boundary == -1 or boundary < start + chunk_size // 2:
                 boundary = text.rfind(' ', start, end)
             
-            # If found a good boundary, use it
             if boundary > start:
                 end = boundary + 1
         
@@ -302,7 +298,6 @@ def create_document_text(item: dict, doc_type: str) -> str:
     """
     parts = []
     
-    # Determine act abbreviation
     if doc_type == 'ipc':
         act_abbrev = "IPC"
         act_name = "Indian Penal Code, 1860"
@@ -319,32 +314,26 @@ def create_document_text(item: dict, doc_type: str) -> str:
         act_abbrev = doc_type.upper()
         act_name = item.get('act', doc_type.upper())
     
-    # Add source information
     source = item.get('source', 'IndianKanoon.org')
     parts.append(f"Source: {source}")
     
-    # Add act name
     if item.get('act'):
         parts.append(f"Act: {item['act']}")
     else:
         parts.append(f"Act: {act_name}")
     
-    # Add section number
     section_num = item.get('section_number', '')
     if section_num:
         parts.append(f"{act_abbrev} Section {section_num}")
     
-    # Add section title
     section_title = item.get('section_title', '')
     if section_title:
         parts.append(f"Title: {section_title}")
     
-    # Add main section text
     section_text = item.get('section_text', '')
     if section_text:
         parts.append(f"\nContent:\n{section_text}")
     
-    # Add explanations if any
     explanations = item.get('explanations', [])
     if explanations and any(explanations):
         parts.append("\nExplanations:")
@@ -352,7 +341,6 @@ def create_document_text(item: dict, doc_type: str) -> str:
             if explanation and explanation.strip():
                 parts.append(f"{i}. {explanation}")
     
-    # Add illustrations if any
     illustrations = item.get('illustrations', [])
     if illustrations and any(illustrations):
         parts.append("\nIllustrations:")
@@ -423,24 +411,18 @@ def index_data_to_chroma():
         total_chunks = 0
         
         for idx, item in enumerate(tqdm(data, desc=f"     Preparing {data_type}", unit="doc")):
-            # Create document text
             doc_text = create_document_text(item, data_type)
             
-            # Chunk the document if it's too large
             chunks = chunk_text(doc_text, chunk_size=800, overlap=200)
             total_chunks += len(chunks)
             
-            # Create metadata
             section_num = item.get('section_number', idx)
             
-            # Process each chunk
             for chunk_idx, chunk in enumerate(chunks):
-                # Generate stable ID
                 chunk_id = f"{data_type}_{section_num}_{chunk_idx}"
                 ids.append(chunk_id)
                 documents.append(chunk)
                 
-                # Create metadata for this chunk
                 metadata = {
                     'type': data_type,
                     'section_number': str(section_num),
@@ -452,7 +434,6 @@ def index_data_to_chroma():
                     'total_chunks': len(chunks)
                 }
                 
-                # Clean metadata - remove None values and ensure correct types
                 clean_metadata = {}
                 for key, value in metadata.items():
                     if value is not None and value != '':
@@ -472,7 +453,6 @@ def index_data_to_chroma():
             print(f"     ✗ Error generating embeddings: {e}")
             continue
         
-        # Add to ChromaDB in batches
         batch_size = 100
         print(f"     Adding chunks to ChromaDB...")
         for i in range(0, len(ids), batch_size):
