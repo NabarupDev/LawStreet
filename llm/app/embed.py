@@ -107,10 +107,14 @@ To verify embeddings are correct:
 4. Check vector dimension = 384
 5. Check vector magnitude ≈ 1.0 (normalized)
 """
+import os
 from sentence_transformers import SentenceTransformer
 from typing import List, Union
 import numpy as np
 from app.config import EMBEDDING_MODEL
+
+# Memory optimization: Force CPU-only mode
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 
 
 class EmbeddingModel:
@@ -124,8 +128,10 @@ class EmbeddingModel:
             model_name: Name of the sentence-transformers model
         """
         print(f"Loading embedding model: {model_name}")
-        self.model = SentenceTransformer(model_name)
+        # Force CPU device to save memory
+        self.model = SentenceTransformer(model_name, device='cpu')
         self.model_name = model_name
+        print(f"Embedding model loaded successfully (CPU mode)")
         
     def embed_text(self, text: Union[str, List[str]]) -> Union[List[float], List[List[float]]]:
         """

@@ -217,14 +217,17 @@ if LLM_PROVIDER == "middleware":
         print("Make sure websocket-client is installed: pip install websocket-client")
 
 genai = None
+genai_types = None
 if LLM_PROVIDER == "gemini" or USE_GEMINI_FOR_WEB_SEARCH:
     try:
-        import google.generativeai as genai
+        from google import genai
+        from google.genai import types as genai_types
     except ImportError:
-        print("Warning: google-generativeai not installed. Install with: pip install google-generativeai")
+        print("Warning: google-genai not installed. Install with: pip install google-genai")
         if LLM_PROVIDER == "gemini":
             print("ERROR: Gemini selected but library not installed!")
         genai = None
+        genai_types = None
 
 
 def extract_section_info(query: str) -> Tuple[Optional[str], Optional[str]]:
@@ -323,18 +326,18 @@ class RAGPipeline:
             if not GEMINI_API_KEY:
                 raise ValueError("GEMINI_API_KEY not found. Please set it in .env file.")
             if genai is None:
-                raise ImportError("google-generativeai not installed. Run: pip install google-generativeai")
+                raise ImportError("google-genai not installed. Run: pip install google-genai")
             
-            genai.configure(api_key=GEMINI_API_KEY)
-            self.gemini_model = genai.GenerativeModel(GEMINI_MODEL)
+            self.gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+            self.gemini_model_name = GEMINI_MODEL
             print(f"RAG Pipeline initialized with Gemini model: {GEMINI_MODEL}")
         else:
             raise ValueError(f"Invalid LLM_PROVIDER: {self.llm_provider}. Use 'ollama', 'gemini', or 'middleware'")
         
         if self.use_gemini_for_web and self.llm_provider == "ollama":
             if GEMINI_API_KEY and genai is not None:
-                genai.configure(api_key=GEMINI_API_KEY)
-                self.gemini_model = genai.GenerativeModel(GEMINI_MODEL)
+                self.gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+                self.gemini_model_name = GEMINI_MODEL
                 print(f"Gemini ({GEMINI_MODEL}) enabled for web search results (faster)")
             else:
                 print("Warning: USE_GEMINI_FOR_WEB_SEARCH=true but Gemini not configured. Will use Ollama for all queries.")
@@ -636,21 +639,19 @@ Answer: Provide a clear, accurate answer based on the legal context above. Cite 
         import time
         
         try:
-            print(f"Sending request to Gemini ({GEMINI_MODEL})...")
+            print(f"Sending request to Gemini ({self.gemini_model_name})...")
             print(f"Prompt length: {len(prompt)} characters")
             start_time = time.time()
             
-            generation_config = genai.types.GenerationConfig(
-                temperature=0.7,
-                top_p=0.9,
-                top_k=40,
-                max_output_tokens=2048,
-            )
-            
-            response = self.gemini_model.generate_content(
-                prompt,
-                generation_config=generation_config,
-                request_options={'timeout': GEMINI_TIMEOUT}
+            response = self.gemini_client.models.generate_content(
+                model=self.gemini_model_name,
+                contents=prompt,
+                config=genai_types.GenerateContentConfig(
+                    temperature=0.7,
+                    top_p=0.9,
+                    top_k=40,
+                    max_output_tokens=2048,
+                )
             )
             
             elapsed = time.time() - start_time
@@ -737,7 +738,7 @@ Answer: Provide a clear, accurate answer based on the legal context above. Cite 
         
         prompt = self.build_prompt(query, context)
         
-        if used_web_search and self.use_gemini_for_web and hasattr(self, 'gemini_model'):
+        if used_web_search and self.use_gemini_for_web and hasattr(self, 'gemini_client'):
             print("Using Gemini for web search results (faster)")
             raw_answer = self._query_gemini(prompt)
         elif self.llm_provider == "middleware":
