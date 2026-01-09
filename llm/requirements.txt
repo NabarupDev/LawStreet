@@ -22,3 +22,6 @@ httpx
 python-multipart
 tqdm
 python-dotenv
+
+# Production server
+gunicorn
