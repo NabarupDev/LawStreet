@@ -199,11 +199,22 @@ from app.config import (
     PROMPT_TEMPLATE_PATH,
     MAX_CONTEXT_LENGTH,
     RELEVANCE_THRESHOLD,
-    USE_GEMINI_FOR_WEB_SEARCH
+    USE_GEMINI_FOR_WEB_SEARCH,
+    LLM_MIDDLEWARE_PROVIDER
 )
 from app.embed import get_embedding_model
 from app.web_search import search_legal_web, format_web_results_as_context, is_tavily_configured
 from app.response_processor import post_process_response
+
+# Import LLM Middleware client
+llm_middleware_client = None
+if LLM_PROVIDER == "middleware":
+    try:
+        from app.llm_middleware import get_llm_client
+        llm_middleware_client = get_llm_client
+    except ImportError as e:
+        print(f"Warning: Could not import LLM middleware client: {e}")
+        print("Make sure websocket-client is installed: pip install websocket-client")
 
 genai = None
 if LLM_PROVIDER == "gemini" or USE_GEMINI_FOR_WEB_SEARCH:
@@ -287,7 +298,15 @@ class RAGPipeline:
         self.llm_provider = LLM_PROVIDER
         self.use_gemini_for_web = USE_GEMINI_FOR_WEB_SEARCH
         
-        if self.llm_provider == "ollama":
+        if self.llm_provider == "middleware":
+            # Use Open LLM Middleware for multi-provider support
+            if llm_middleware_client is None:
+                raise ImportError("LLM Middleware client not available. Check the import errors above.")
+            
+            self.middleware_client = llm_middleware_client()
+            print(f"RAG Pipeline initialized with Open LLM Middleware (provider: {LLM_MIDDLEWARE_PROVIDER})")
+            
+        elif self.llm_provider == "ollama":
             self.ollama_base_url = OLLAMA_BASE_URL
             self.ollama_model = OLLAMA_MODEL
             
@@ -310,7 +329,7 @@ class RAGPipeline:
             self.gemini_model = genai.GenerativeModel(GEMINI_MODEL)
             print(f"RAG Pipeline initialized with Gemini model: {GEMINI_MODEL}")
         else:
-            raise ValueError(f"Invalid LLM_PROVIDER: {self.llm_provider}. Use 'ollama' or 'gemini'")
+            raise ValueError(f"Invalid LLM_PROVIDER: {self.llm_provider}. Use 'ollama', 'gemini', or 'middleware'")
         
         if self.use_gemini_for_web and self.llm_provider == "ollama":
             if GEMINI_API_KEY and genai is not None:
@@ -511,12 +530,45 @@ Answer: Provide a clear, accurate answer based on the legal context above. Cite 
         Returns:
             Model response text
         """
-        if self.llm_provider == "ollama":
+        if self.llm_provider == "middleware":
+            return self._query_middleware(prompt)
+        elif self.llm_provider == "ollama":
             return self._query_ollama(prompt)
         elif self.llm_provider == "gemini":
             return self._query_gemini(prompt)
         else:
             return f"Error: Unknown LLM provider: {self.llm_provider}"
+    
+    def _query_middleware(self, prompt: str) -> str:
+        """
+        Send prompt to Open LLM Middleware and get response
+        
+        Args:
+            prompt: Complete prompt string
+            
+        Returns:
+            Model response text
+        """
+        import time
+        
+        try:
+            print(f"Sending request to LLM Middleware...")
+            print(f"Prompt length: {len(prompt)} characters")
+            start_time = time.time()
+            
+            # Use the generate convenience method
+            response = self.middleware_client.generate(
+                prompt=prompt,
+                system_prompt="You are a knowledgeable legal assistant specializing in Indian law."
+            )
+            
+            elapsed = time.time() - start_time
+            print(f"Middleware response received in {elapsed:.2f} seconds")
+            
+            return response
+            
+        except Exception as e:
+            return f"Error querying LLM Middleware: {str(e)}"
     
     def _query_ollama(self, prompt: str) -> str:
         """
@@ -688,6 +740,8 @@ Answer: Provide a clear, accurate answer based on the legal context above. Cite 
         if used_web_search and self.use_gemini_for_web and hasattr(self, 'gemini_model'):
             print("Using Gemini for web search results (faster)")
             raw_answer = self._query_gemini(prompt)
+        elif self.llm_provider == "middleware":
+            raw_answer = self._query_middleware(prompt)
         elif self.llm_provider == "ollama":
             raw_answer = self._query_ollama(prompt)
         else:

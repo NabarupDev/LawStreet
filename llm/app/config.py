@@ -19,7 +19,35 @@ EMBEDDING_DIMENSION = 384
 CHROMA_COLLECTION_NAME = "indian_law_collection"
 CHROMA_DISTANCE_METRIC = "cosine"
 
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama").lower()
+# LLM Provider Selection: "ollama", "gemini", or "middleware"
+# Use "middleware" for Open LLM Middleware with multi-provider support
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "middleware").lower()
+
+# ==================== Open LLM Middleware Configuration ====================
+# Multi-provider LLM middleware with failover, retry logic, and WebSocket support
+# Live server: https://open-llm-mslh.onrender.com
+
+LLM_MIDDLEWARE_URL = os.getenv("LLM_MIDDLEWARE_URL", "https://open-llm-mslh.onrender.com")
+LLM_MIDDLEWARE_SECRET = os.getenv("LLM_MIDDLEWARE_SECRET", "")
+
+# Middleware provider: "openai", "google", "cerebras", "groq"
+# - openai: GPT-4o (best quality)
+# - google: Gemini 2.5 Flash (default, 1M context window)
+# - cerebras: Llama 3.3 70B (fastest inference, 30 req/min limit)
+# - groq: Llama 3.3 70B Versatile (fast inference)
+LLM_MIDDLEWARE_PROVIDER = os.getenv("LLM_MIDDLEWARE_PROVIDER", "google")
+
+# Optional: Specify model (leave empty for provider default)
+LLM_MIDDLEWARE_MODEL = os.getenv("LLM_MIDDLEWARE_MODEL", "")
+
+# Request timeout in seconds
+LLM_MIDDLEWARE_TIMEOUT = int(os.getenv("LLM_MIDDLEWARE_TIMEOUT", "120"))
+
+# Maximum tokens in response
+LLM_MIDDLEWARE_MAX_TOKENS = int(os.getenv("LLM_MIDDLEWARE_MAX_TOKENS", "2048"))
+
+# Use WebSocket for faster bidirectional communication (experimental)
+LLM_MIDDLEWARE_USE_WEBSOCKET = os.getenv("LLM_MIDDLEWARE_USE_WEBSOCKET", "false").lower() == "true"
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "phi4-mini")
@@ -60,5 +88,7 @@ if LLM_PROVIDER == "ollama":
     API_DESCRIPTION = f"RAG-based Indian Law Assistant using Ollama ({OLLAMA_MODEL}) + ChromaDB"
 elif LLM_PROVIDER == "gemini":
     API_DESCRIPTION = f"RAG-based Indian Law Assistant using Gemini ({GEMINI_MODEL}) + ChromaDB"
+elif LLM_PROVIDER == "middleware":
+    API_DESCRIPTION = f"RAG-based Indian Law Assistant using Open LLM Middleware ({LLM_MIDDLEWARE_PROVIDER}) + ChromaDB"
 else:
     API_DESCRIPTION = "RAG-based Indian Law Assistant using ChromaDB"
