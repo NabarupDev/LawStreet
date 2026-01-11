@@ -140,7 +140,8 @@ app.post("/token", async (req, res) => {
       });
     }
 
-    const issuedAt = Math.floor(Date.now() / 1000);
+    // Subtract 60 seconds to account for clock skew between local machine and Stream servers
+    const issuedAt = Math.floor(Date.now() / 1000) - 60;
     const expiration = issuedAt + 60 * 60;
 
     const token = serverClient.createToken(userId, expiration, issuedAt);
